@@ -28,6 +28,20 @@
        container). Empty keeps the track default. -->
   <arg name="mpc_config_file" default=""/>
   <arg name="mpc_ref_vel_file" default=""/>
+  <!-- Gates ALL other-vehicle awareness in mpc_controller: the V2X tracker, the
+       path_constraints subscription and the wait for it. config.yaml's
+       use_path_constraints_topic is dead unless this is true, which is worth knowing
+       because that flag reads as if overtaking were enabled and it is not.
+       Left OFF deliberately. Turning it on does not produce overtaking: the MPC
+       treats the other car as an obstacle and gives up speed to queue behind it, so
+       the lap gets slower with nothing gained. The archived submissions show the same
+       conclusion being reached before (obstacle_avoid_r0.65 followed by
+       avoidance_off_recovery).
+       The consequence is accepted rather than solved: with no obstacle awareness the
+       car will drive into one ahead, and rear-ending carries a penalty that stops the
+       car. The answer to that is to lead from the start, and to rely on
+       stuck_recovery_controller when contact happens anyway. -->
+  <arg name="use_obstacle_avoidance" default="false"/>
   <arg name="use_boost_acceleration" default="false"/>
 
   <!-- Global parameters -->
@@ -157,6 +171,7 @@
       <arg name="mpc_config_file" value="$(var mpc_config_file)"/>
       <arg name="mpc_ref_vel_file" value="$(var mpc_ref_vel_file)"/>
       <arg name="use_boost_acceleration" value="$(var use_boost_acceleration)"/>
+      <arg name="use_obstacle_avoidance" value="$(var use_obstacle_avoidance)"/>
       <arg name="output_control_cmd" value="/control/command/nominal_control_cmd"/>
     </include>
 

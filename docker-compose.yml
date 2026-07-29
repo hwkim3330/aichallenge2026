@@ -27,6 +27,7 @@ x-autoware-base: &autoware-base
     - INPUT_SOURCE=${INPUT_SOURCE:-}
     - MPC_CONFIG_FILE=${MPC_CONFIG_FILE:-}
     - MPC_REF_VEL_FILE=${MPC_REF_VEL_FILE:-}
+    - USE_OBSTACLE_AVOIDANCE=${USE_OBSTACLE_AVOIDANCE:-}
     - CAPTURE=${CAPTURE:-}
   volumes:
     - ./output:${OUTPUT_ROOT:-/output}

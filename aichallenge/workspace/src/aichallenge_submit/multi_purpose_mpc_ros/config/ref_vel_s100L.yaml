@@ -1,0 +1,50 @@
+# x1.00 (the proven baseline speeds) WITH the braking lead-ins.
+#
+# Reliability, not pace, is why this exists. x1.10 with lead-ins runs 44.3-44.6 s on
+# a clean lap in every run, but over three runs it threw 0, 1 and 2 laps away:
+# averages 44.54 / 47.79 / 55.16, recoveries 0 / 3 / 9. Expected value about 49 s,
+# which is worse than the 47.28 s baseline it was meant to beat.
+#
+# So this keeps the baseline speeds and adds only the lead-ins, on the theory that
+# the transitions were marginal at x1.00 too (s3 -> s4 needs 10.0 m of braking and
+# has 6 m) and that fixing them costs nothing.
+ref_vel_configulator:
+  s1:
+    ref_vel: 30.0
+    wp_id: 1
+  s1_1:
+    ref_vel: 30.0
+    wp_id: 30
+  s2:
+    ref_vel: 30.0
+    wp_id: 55
+  s3:
+    ref_vel: 30.0
+    wp_id: 100
+  s3b:
+    ref_vel: 26.0
+    wp_id: 141
+  s4:
+    ref_vel: 22.0
+    wp_id: 155
+  s5:
+    ref_vel: 30.0
+    wp_id: 190
+  s5b:
+    ref_vel: 26.0
+    wp_id: 250
+  s6:
+    ref_vel: 22.0
+    wp_id: 265
+  s7:
+    ref_vel: 30.0
+    wp_id: 290
+  s7b:
+    ref_vel: 27.5
+    wp_id: 310
+  s8:
+    ref_vel: 25.0
+    wp_id: 320
+  s9:
+    ref_vel: 30.0
+    wp_id: 335

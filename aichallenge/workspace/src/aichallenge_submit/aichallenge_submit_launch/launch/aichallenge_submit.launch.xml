@@ -14,6 +14,7 @@
   <arg name="input_source" default=""/>
   <arg name="mpc_config_file" default="config.yaml"/>
   <arg name="mpc_ref_vel_file" default=""/>
+  <arg name="use_obstacle_avoidance" default="false"/>
 
   <log message="The arguments for aichallenge_submit_launch."/>
   <log message=" - simulation: $(var simulation)"/>
@@ -33,5 +34,6 @@
     <arg name="control_method" value="$(var control_method)"/>
     <arg name="mpc_config_file" value="$(var mpc_config_file)"/>
     <arg name="mpc_ref_vel_file" value="$(var mpc_ref_vel_file)"/>
+    <arg name="use_obstacle_avoidance" value="$(var use_obstacle_avoidance)"/>
   </include>
 </launch>

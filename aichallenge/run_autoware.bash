@@ -29,6 +29,7 @@ esac
 [[ -n "${INPUT_SOURCE:-}" ]] && opts+=("input_source:=${INPUT_SOURCE}")
 [[ -n "${MPC_CONFIG_FILE:-}" ]] && opts+=("mpc_config_file:=${MPC_CONFIG_FILE}")
 [[ -n "${MPC_REF_VEL_FILE:-}" ]] && opts+=("mpc_ref_vel_file:=${MPC_REF_VEL_FILE}")
+[[ -n "${USE_OBSTACLE_AVOIDANCE:-}" ]] && opts+=("use_obstacle_avoidance:=${USE_OBSTACLE_AVOIDANCE}")
 
 export ROS_DOMAIN_ID=$id
 

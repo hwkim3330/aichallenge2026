@@ -1,0 +1,49 @@
+# Uniform x1.10 of the proven shape, with braking lead-ins.
+#
+# The only family that works. Per-section grip ceilings have now failed three
+# times -- with and without lead-ins, coarse and fine -- because the model's grip
+# arithmetic assumes perfect tracking and the MPC will not follow large swings
+# between adjacent sections. Uniform scaling keeps every step in proportion.
+#
+# x1.10 of this construction measured 44.54 s (6/6 clean, 0 recoveries).
+# Peak lateral demand here: 19.15 m/s^2 (x1.10 is 19.15, and 20.93 failed).
+ref_vel_configulator:
+  s1:
+    ref_vel: 33.0
+    wp_id: 1
+  s1_1:
+    ref_vel: 33.0
+    wp_id: 30
+  s2:
+    ref_vel: 33.0
+    wp_id: 55
+  s3:
+    ref_vel: 33.0
+    wp_id: 100
+  s3b:
+    ref_vel: 28.6
+    wp_id: 138
+  s4:
+    ref_vel: 24.2
+    wp_id: 155
+  s5:
+    ref_vel: 33.0
+    wp_id: 190
+  s5b:
+    ref_vel: 28.6
+    wp_id: 247
+  s6:
+    ref_vel: 24.2
+    wp_id: 265
+  s7:
+    ref_vel: 33.0
+    wp_id: 290
+  s7b:
+    ref_vel: 30.2
+    wp_id: 308
+  s8:
+    ref_vel: 27.5
+    wp_id: 320
+  s9:
+    ref_vel: 33.0
+    wp_id: 335

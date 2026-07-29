@@ -12,6 +12,7 @@
     <arg name="input_source" default="joy"/>
     <arg name="mpc_config_file" default="config.yaml"/>
     <arg name="mpc_ref_vel_file" default=""/>
+    <arg name="use_obstacle_avoidance" default="false"/>
 
     <let name="domain_id" value="$(var domain_id)"/>
     <let name="rviz_config" value="$(find-pkg-share aichallenge_system_launch)/config/autoware_vehicle.rviz"/>
@@ -38,6 +39,7 @@
         <arg name="input_source" value="$(var input_source)"/>
         <arg name="mpc_config_file" value="$(var mpc_config_file)"/>
         <arg name="mpc_ref_vel_file" value="$(var mpc_ref_vel_file)"/>
+        <arg name="use_obstacle_avoidance" value="$(var use_obstacle_avoidance)"/>
     </include>
 
     <!-- Visualization. -->

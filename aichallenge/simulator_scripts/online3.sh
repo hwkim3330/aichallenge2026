@@ -1,0 +1,26 @@
+#!/bin/bash
+
+AWSIM_DIRECTORY=/aichallenge/simulator/AWSIM
+export ROS_DOMAIN_ID=0
+
+exec "$AWSIM_DIRECTORY/AWSIM.x86_64" \
+    --camera off \
+    --lidar off \
+    --start-mode sync \
+    --start-count-seconds 5 \
+    --vehicles 3 \
+    --npcs 0 \
+    --boosts 2 \
+    --laps 6 \
+    --timeout 600.0 \
+    --steer-source ackermann \
+    --sound off \
+    --collisions on \
+    --handicap on \
+    --wall-recovery off \
+    --ranking on \
+    -screen-fullscreen 0 \
+    -screen-width 1280 \
+    -screen-height 720 \
+    -screen-quality low \
+    -window-mode windowed
