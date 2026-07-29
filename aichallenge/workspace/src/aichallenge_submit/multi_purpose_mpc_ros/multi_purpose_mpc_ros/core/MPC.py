@@ -110,6 +110,12 @@ class MPC:
 
         # Get curvature predictions
         kappa_pred = np.tan(np.append(np.array(self.current_control[3::self.nu]), self.current_control[-1])) / self.model.length
+        # current_control can hold an unconverged OSQP iterate (bounds are only
+        # satisfied at convergence), which produced |kappa_pred| up to 0.952
+        # against the physical input bound tan(delta_max)/L = 0.668 and pinned
+        # vmax_dyn at sqrt(20/0.952) = 4.58 m/s (measured). Clip to the bound.
+        kappa_bound = abs(self.input_constraints['umax'][1])
+        kappa_pred = np.clip(kappa_pred, -kappa_bound, kappa_bound)
 
         # Consider control delay
         self.model.wp_id += self.wp_id_offset
@@ -141,6 +147,28 @@ class MPC:
             else:
                 vmax_dyn = np.sqrt(self.ay_max / (np.abs(kappa_pred[n]) + 1e-12))
             umax_dyn[self.nu*n] = min(vmax_dyn, umax_dyn[self.nu*n])
+
+            # Enforce the per-waypoint speed profile as a hard input cap.
+            # The R[0] term only *pulls* u toward v_ref, and the time cost
+            # Q[2] dominates it, so the solver otherwise rides
+            # min(umax, vmax_dyn) and ignores v_ref entirely (measured:
+            # v_ref0=8.31 while u0=11.11). The flat ref_vel mode only ever
+            # worked because update_v_max() turned the section speed into
+            # this same constraint globally; there v_ref == umax[0], so this
+            # line is a no-op in that mode.
+            umax_dyn[self.nu*n] = min(umax_dyn[self.nu*n], v_ref)
+
+        # Debug telemetry for the speed pipeline (read by mpc_controller):
+        # v_ref actually fed to the solver at step 0, the dynamic speed cap at
+        # step 0 and its minimum over the horizon.
+        self.debug_v_ref0 = ur[0]
+        self.debug_umax_dyn0 = umax_dyn[0]
+        self.debug_umax_dyn_min = float(np.min(umax_dyn[::self.nu]))
+        # kappa actually fed to the vmax_dyn formula (prev solution's planned
+        # steering, NOT path curvature) and the path's own kappa at step 0.
+        self.debug_kpred_max = float(np.max(np.abs(kappa_pred)))
+        self.debug_kappa_wp0 = float(
+            self.model.reference_path.get_waypoint(self.model.wp_id).kappa)
 
         # Update path constraints
         if self.use_obstacle_avoidance and not self.use_path_constraints_topic:
@@ -247,6 +275,12 @@ class MPC:
 
         self._init_problem(N, self.model.safety_margin)
 
+        # NOTE: unconverged OSQP iterates (max-iter/infeasible) are still
+        # accepted as control here on purpose. Rejecting them and commanding
+        # zero was tried and it deadlocks: a car stopped off-line keeps the QP
+        # infeasible forever, and the stuck-recovery node never fires because
+        # the nominal command is zero. The garbage they used to inject into
+        # the speed cap is handled by the kappa_pred clip in _init_problem.
         try:
             dec = self.optimizer.solve()
             control_signals = np.array(dec.x[-N*nu:])
@@ -292,7 +326,9 @@ class MPC:
             self.infeasibility_counter = 0
             self.last_solved_wp_id = self.model.wp_id
 
-        except TypeError or ValueError:
+        except (TypeError, ValueError):
+            # note: this was 'except TypeError or ValueError' which Python
+            # evaluates to 'except TypeError' only.
             id = nu * (self.infeasibility_counter + 1)
             if id + 2 < len(self.current_control):
                 u = np.array(self.current_control[id:id+2])

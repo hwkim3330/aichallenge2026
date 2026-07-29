@@ -831,14 +831,15 @@ class MPCController(Node):
         # print(f"mpc x: {self._mpc.model.temporal_state.x}, y: {self._mpc.model.temporal_state.y}, psi: {self._mpc.model.temporal_state.psi}")
 
         if self._csv_speed_profile is not None:
-            # cfg v_max is km/h; update_v_max and the CSV profile are both m/s.
-            # Without this conversion the CSV branch armed the MPC with 40 m/s
-            # (144 km/h) instead of 11.1 m/s, so the velocity ceiling was gone
-            # entirely and min(v, 40) could never bind against a telemetry
-            # profile that peaks near 10 m/s. The other two call sites already
-            # convert (line ~268 via the parameter callback, and the ref_vel
-            # branch below), which is what makes this one easy to miss.
-            v_max_mps = kmh_to_m_per_sec(self._mpc_cfg.v_max)
+            # UNIT NOTE (this bit us twice): self._mpc_cfg.v_max is ALREADY in
+            # m/s -- create_mpc() converts the yaml km/h value via
+            # kmh_to_m_per_sec() when it builds MPCConfig. Only the raw
+            # self._cfg.mpc.v_max is km/h. A previous "fix" here applied
+            # kmh_to_m_per_sec() a second time, turning v_max 33 km/h into
+            # 33/3.6/3.6 = 2.55 m/s, which clamped every waypoint's v_ref AND
+            # umax[0] -- that was the infamous "speed pinned at 2.55 m/s /
+            # 9.2 km/h" failure of the CSV speed profile path.
+            v_max_mps = self._mpc_cfg.v_max
             v_ref = [min(v, v_max_mps) for v in self._csv_speed_profile]
             self._reference_path.set_v_ref(v_ref)
             self._mpc.update_v_max(v_max_mps)
@@ -854,6 +855,23 @@ class MPCController(Node):
         with self._stats.time_block("control"):
             u, max_delta = self._mpc.get_control()
             # self.get_logger().info(f"u: {u}")
+
+        if self._csv_speed_profile is not None:
+            # Speed-pipeline instrumentation for the CSV profile path:
+            # v_ref0   = reference speed the solver was given at horizon step 0
+            # umax0    = global speed ceiling (input constraint)
+            # dyn0/dynN = curvature-based dynamic cap at step 0 / min over horizon
+            # u0       = solved speed command
+            self.get_logger().info(
+                f"[speed-dbg] wp={self._mpc.model.wp_id} "
+                f"v_ref0={getattr(self._mpc, 'debug_v_ref0', -1.0):.2f} "
+                f"umax0={self._mpc.input_constraints['umax'][0]:.2f} "
+                f"dyn0={getattr(self._mpc, 'debug_umax_dyn0', -1.0):.2f} "
+                f"dynN={getattr(self._mpc, 'debug_umax_dyn_min', -1.0):.2f} "
+                f"kpred={getattr(self._mpc, 'debug_kpred_max', -1.0):.3f} "
+                f"kwp={getattr(self._mpc, 'debug_kappa_wp0', -1.0):.3f} "
+                f"u0={u[0]:.2f} v={v:.2f}",
+                throttle_duration_sec=1.0)
 
         # override by brake command if control is disabled
         if not self._enable_control:

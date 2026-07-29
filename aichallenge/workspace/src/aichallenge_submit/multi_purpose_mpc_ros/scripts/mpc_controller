@@ -19,6 +19,7 @@ def main(argv = sys.argv) -> None:
     rclpy.init(args=argv, signal_handler_options=SignalHandlerOptions.NO)
     executor = MultiThreadedExecutor(num_threads=2)
 
+    node = None
     try:
         node = MPCController(args.config_path, args.ref_vel_path)
         executor.add_node(node)
@@ -26,9 +27,14 @@ def main(argv = sys.argv) -> None:
         executor_thread.start()
         node.run()
     except KeyboardInterrupt:
-        node.get_logger().info("Shutdown requested")
+        if node is not None:
+            node.get_logger().info("Shutdown requested")
     finally:
-        node.stop()
+        # Guard: if the constructor raised, 'node' is None and calling
+        # node.stop() here used to raise UnboundLocalError, masking the real
+        # traceback (cost us hours twice).
+        if node is not None:
+            node.stop()
         rclpy.shutdown()
         for node in executor._nodes:
             node.destroy_node()
