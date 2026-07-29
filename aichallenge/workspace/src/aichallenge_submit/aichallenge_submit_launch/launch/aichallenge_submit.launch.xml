@@ -4,12 +4,23 @@
   <arg name="use_sim_time"/>
   <arg name="sensor_model"/>
   <arg name="launch_vehicle_interface"/>
+  <!-- aichallenge_system.launch.xml passes these three (from the CONTROL_METHOD,
+       INPUT_SOURCE and MPC_CONFIG_FILE env vars that run_autoware.bash forwards),
+       but this file declared none of them, so they were dropped here and the
+       defaults further down applied instead. Declaring and forwarding them is what
+       lets three vehicles on ROS_DOMAIN_ID 1/2/3 run three different MPC configs
+       from one image. -->
+  <arg name="control_method" default="mpc"/>
+  <arg name="input_source" default=""/>
+  <arg name="mpc_config_file" default="config.yaml"/>
 
   <log message="The arguments for aichallenge_submit_launch."/>
   <log message=" - simulation: $(var simulation)"/>
   <log message=" - use_sim_time: $(var use_sim_time)"/>
   <log message=" - sensor_model: $(var sensor_model)"/>
   <log message=" - launch_vehicle_interface: $(var launch_vehicle_interface)"/>
+  <log message=" - control_method: $(var control_method)"/>
+  <log message=" - mpc_config_file: $(var mpc_config_file)"/>
 
   <include file="$(find-pkg-share aichallenge_submit_launch)/launch/reference.launch.xml" >
     <arg name="vehicle_model" value="racing_kart"/>
@@ -18,5 +29,7 @@
     <arg name="use_sim_time" value="$(var use_sim_time)"/>
     <arg name="simulation" value="$(var simulation)"/>
     <arg name="launch_vehicle_interface" value="$(var launch_vehicle_interface)"/>
+    <arg name="control_method" value="$(var control_method)"/>
+    <arg name="mpc_config_file" value="$(var mpc_config_file)"/>
   </include>
 </launch>

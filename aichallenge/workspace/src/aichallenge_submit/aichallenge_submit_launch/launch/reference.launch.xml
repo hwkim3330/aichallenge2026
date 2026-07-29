@@ -23,6 +23,11 @@
   <!-- Control method -->
   <arg name="control_method" default="mpc"
       description="Select control: mpc, pure_pursuit, tiny_lidar_net, pilot_net, joycon, rl_train"/>
+  <!-- Overrides the track-derived config file name, so one image can serve
+       several vehicles with different MPC tuning (set MPC_CONFIG_FILE per
+       container). Empty keeps the track default. -->
+  <arg name="mpc_config_file" default=""/>
+  <arg name="use_boost_acceleration" default="false"/>
 
   <!-- Global parameters -->
   <group scoped="false">
@@ -148,6 +153,8 @@
     <include file="$(find-pkg-share aichallenge_submit_launch)/launch/control/mpc.launch.xml">
       <arg name="use_sim_time" value="$(var use_sim_time)"/>
       <arg name="track" value="$(var track)"/>
+      <arg name="mpc_config_file" value="$(var mpc_config_file)"/>
+      <arg name="use_boost_acceleration" value="$(var use_boost_acceleration)"/>
       <arg name="output_control_cmd" value="/control/command/nominal_control_cmd"/>
     </include>
 
