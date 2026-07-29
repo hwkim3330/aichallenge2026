@@ -27,6 +27,7 @@
        several vehicles with different MPC tuning (set MPC_CONFIG_FILE per
        container). Empty keeps the track default. -->
   <arg name="mpc_config_file" default=""/>
+  <arg name="mpc_ref_vel_file" default=""/>
   <arg name="use_boost_acceleration" default="false"/>
 
   <!-- Global parameters -->
@@ -154,6 +155,7 @@
       <arg name="use_sim_time" value="$(var use_sim_time)"/>
       <arg name="track" value="$(var track)"/>
       <arg name="mpc_config_file" value="$(var mpc_config_file)"/>
+      <arg name="mpc_ref_vel_file" value="$(var mpc_ref_vel_file)"/>
       <arg name="use_boost_acceleration" value="$(var use_boost_acceleration)"/>
       <arg name="output_control_cmd" value="/control/command/nominal_control_cmd"/>
     </include>

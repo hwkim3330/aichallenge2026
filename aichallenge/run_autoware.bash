@@ -8,6 +8,7 @@ out_dir="${out_dir:-/output/$(date +%Y%m%d-%H%M%S)/d${id}}"
 case "${mode}" in
 "awsim")
     opts=("simulation:=true" "use_sim_time:=true" "run_rviz:=true")
+    [[ -n "${CAPTURE:-}" ]] && opts+=("capture:=${CAPTURE}")
     ;;
 "awsim-no-viz")
     opts=("simulation:=true" "use_sim_time:=true" "run_rviz:=false")
@@ -23,6 +24,11 @@ case "${mode}" in
     exit 1
     ;;
 esac
+
+[[ -n "${CONTROL_METHOD:-}" ]] && opts+=("control_method:=${CONTROL_METHOD}")
+[[ -n "${INPUT_SOURCE:-}" ]] && opts+=("input_source:=${INPUT_SOURCE}")
+[[ -n "${MPC_CONFIG_FILE:-}" ]] && opts+=("mpc_config_file:=${MPC_CONFIG_FILE}")
+[[ -n "${MPC_REF_VEL_FILE:-}" ]] && opts+=("mpc_ref_vel_file:=${MPC_REF_VEL_FILE}")
 
 export ROS_DOMAIN_ID=$id
 

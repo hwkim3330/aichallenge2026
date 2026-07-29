@@ -10,6 +10,9 @@
   <arg name="track" default="citycircuit"/>
   <!-- Per-vehicle override; empty falls back to the track-derived name. -->
   <arg name="mpc_config_file" default=""/>
+  <!-- Same idea for the speed profile: ref_vel is a separate file, so a
+       three-vehicle comparison of speed profiles needs it overridable too. -->
+  <arg name="mpc_ref_vel_file" default=""/>
   <!-- The simulator grants 2 boosts (the boosts flag in simulator_scripts). The
        MPC has a boost path already: it publishes AckermannControlBoostCommand on
        /boost_commander/command and raises the model's speed ceiling to BUG_VEL
@@ -20,7 +23,8 @@
   <arg name="use_boost_acceleration" default="false"/>
   <arg name="track_config_file" default="$(eval &quot;'config.yaml' if '$(var track)' == 'citycircuit' else 'config_' + '$(var track)' + '.yaml'&quot;)"/>
   <arg name="config_file" default="$(eval &quot;'$(var mpc_config_file)' or '$(var track_config_file)'&quot;)"/>
-  <arg name="ref_vel_file" default="$(eval &quot;'ref_vel.yaml' if '$(var track)' == 'citycircuit' else 'ref_vel_' + '$(var track)' + '.yaml'&quot;)"/>
+  <arg name="track_ref_vel_file" default="$(eval &quot;'ref_vel.yaml' if '$(var track)' == 'citycircuit' else 'ref_vel_' + '$(var track)' + '.yaml'&quot;)"/>
+  <arg name="ref_vel_file" default="$(eval &quot;'$(var mpc_ref_vel_file)' or '$(var track_ref_vel_file)'&quot;)"/>
 
   <node pkg="multi_purpose_mpc_ros" exec="run_mpc_controller.bash"
         name="mpc_controller" output="screen"

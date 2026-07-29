@@ -1,0 +1,44 @@
+# Self-contest entry: the proven flat profile scaled x1.10.
+#
+# Shape is the 47.28 s baseline's exactly (straights 30, s4/s6 22, s8 25), the
+# only speed profile that has run clean on this track. Only the level moves, so
+# every section step scales with it and the braking distances stay in proportion.
+#
+# Scaling rather than per-section grip ceilings, because ceilings failed twice:
+# a 10-section version put the car into a corner, and a 32-section version with
+# every downward step checked against braking distance averaged 68.45 s with 16
+# recoveries against a 35.37 s prediction. The offline model only holds flat.
+#
+# At this scale, against the 36 s run's own p95 of 15.41 m/s^2:
+#   max lateral demand 19.15 m/s^2, 26 of 351 waypoints over
+ref_vel_configulator:
+  s1:
+    ref_vel: 33.0
+    wp_id: 1
+  s1_1:
+    ref_vel: 33.0
+    wp_id: 30
+  s2:
+    ref_vel: 33.0
+    wp_id: 55
+  s3:
+    ref_vel: 33.0
+    wp_id: 100
+  s4:
+    ref_vel: 24.2
+    wp_id: 155
+  s5:
+    ref_vel: 33.0
+    wp_id: 190
+  s6:
+    ref_vel: 24.2
+    wp_id: 265
+  s7:
+    ref_vel: 33.0
+    wp_id: 290
+  s8:
+    ref_vel: 27.5
+    wp_id: 320
+  s9:
+    ref_vel: 33.0
+    wp_id: 335

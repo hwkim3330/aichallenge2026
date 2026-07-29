@@ -1,31 +1,54 @@
+# SUBMISSION CANDIDATE: the baseline profile scaled x1.05, on traj_top36_blend45.
+#
+# Measured (solo eval, 6 laps):
+#   46.74 / 45.61 / 44.65 / 45.14 / 45.10 / 44.84   average 45.35, 0 recoveries
+#
+# against the day's other candidates on the same line:
+#   x1.00  47.82 / 46.44 / 46.32 / 46.17 / 46.05 / 46.45   46.53, 0 recoveries
+#   x1.10  47.20 / 44.23 / 53.88 / 44.13 / 53.56 / 44.34   47.89, 0 recoveries
+# and the original baseline line at 47.28.
+#
+# x1.10 is faster on a clean lap (44.2 vs 45.4) and loses it twice per six laps. The
+# loss was localised from the rosbag to waypoint 149, and it is NOT grip: |kappa|
+# there is 0.006, essentially straight. It is the s3 -> s4 transition six waypoints
+# later, 33.0 -> 24.2 km/h, which needs 12.1 m of braking at a_min -1.6 and has 6 m.
+# At x1.00 the same transition needs 10.0 m and just survives; at x1.05 it needs
+# 11.0 m and also survives. So the ceiling on scaling is the braking distance at
+# section transitions, not lateral grip.
+#
+# Reliability note: one earlier x1.05 run wedged at the START for 101 s (recovery
+# escalated to attempt 5 twice, velocity 0.006 m/s) and the identical image re-run
+# was clean. One in two on a sample of two, and all three cars had a bad first lap
+# in the three-way race, so the start is fragile in general and is not specific to
+# this profile.
 ref_vel_configulator:
   s1:
-    ref_vel: 30.0
+    ref_vel: 31.5
     wp_id: 1
   s1_1:
-    ref_vel: 30.0
+    ref_vel: 31.5
     wp_id: 30
   s2:
-    ref_vel: 30.0
+    ref_vel: 31.5
     wp_id: 55
   s3:
-    ref_vel: 30.0
+    ref_vel: 31.5
     wp_id: 100
   s4:
-    ref_vel: 22.0
+    ref_vel: 23.1
     wp_id: 155
   s5:
-    ref_vel: 30.0
+    ref_vel: 31.5
     wp_id: 190
   s6:
-    ref_vel: 22.0
+    ref_vel: 23.1
     wp_id: 265
   s7:
-    ref_vel: 30.0
+    ref_vel: 31.5
     wp_id: 290
   s8:
-    ref_vel: 25.0
+    ref_vel: 26.2
     wp_id: 320
   s9:
-    ref_vel: 30.0
+    ref_vel: 31.5
     wp_id: 335
