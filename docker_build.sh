@@ -32,7 +32,17 @@ done
 
 case "${target}" in
 "eval")
-    opts="--no-cache"
+    # --no-cache by default so a submission image is always built from scratch.
+    # During tuning almost every rebuild only changes a config yaml, and paying a
+    # full 26-package colcon build for that costs about as long as the 6-lap run it
+    # is measuring. EVAL_CACHE=1 reuses layers for those iterations; leave it unset
+    # for anything that will actually be submitted.
+    if [ "${EVAL_CACHE:-0}" = "1" ]; then
+        opts=""
+        echo "[docker_build] EVAL_CACHE=1: reusing layers (do NOT use for a submission build)" >&2
+    else
+        opts="--no-cache"
+    fi
     ;;
 "dev")
     opts=""
