@@ -46,4 +46,5 @@
   <export>
     <build_type>ament_cmake</build_type>
   </export>
+  <exec_depend>stuck_recovery_controller</exec_depend>
 </package>

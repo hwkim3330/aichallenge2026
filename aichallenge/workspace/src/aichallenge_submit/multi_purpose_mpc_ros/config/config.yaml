@@ -23,10 +23,12 @@ reference_path:
   update_by_topic: false # When true, 'circle' must be false
   # path from pkg share dir
   # csv_path: ""
-  csv_path: "env/final_ver3/traj_mincurv.csv"
+  csv_path: "env/final_ver3/traj_top36_line.csv"
+  use_csv_speed_profile: false
+  speed_profile_csv_path: "env/final_ver3/traj_top36_telemetry.csv"
   resolution: 0.6
   smoothing_distance: 2
-  max_width: 6.0
+  max_width: 3.0
   circular: true
   use_path_constraints_topic: false
   use_border_cells_topic: false
@@ -45,8 +47,8 @@ mpc:
   # QN: [e_y, e_psi, t]
   R: [100000.0, 0.0]
   a_min: -1.6 # m/s^2
-  a_max: 0.7 # m/s^2
-  delta_max_deg: 32.0 # degrees
+  a_max: 1.35 # m/s^2
+  delta_max_deg: 36.0 # vehicle max_steer_angle is 0.64 rad (~36.7 deg); 32 was self-limiting
   steer_rate_max: 0.35 # rad/s
   control_rate: 40.0 # Hz
   steering_tire_angle_gain_var: 1.639
@@ -93,10 +95,10 @@ mpc:
   ## --------- 中速 -------------- ##
   ## Lap1: 67s, Lap2: 64s
 
-  v_max: 20.0
-  ay_max: 6.5
-  Q: [3000000.0, 90000000.0, 100000.0] # 低速だとインを攻めがちなので、あえて外に膨らむパラメータ
-  QN: [1000000.0, 1000.0, 10000.0]
+  v_max: 33.0  # km/h -- under the real 35 km/h regulation cap
+  ay_max: 20.0
+  Q: [1000000.0, 100000000.0, 1850000.0]
+  QN: [1000000.0, 1000000.0, 10000.0]
 
   ## -------- 低速 -------------- ##
   ## Lap1: 86s

@@ -9,6 +9,7 @@ import numpy as np
 import copy
 import os
 import shutil
+import csv
 from datetime import datetime
 
 # ROS 2
@@ -435,6 +436,32 @@ class MPCController(Node):
 
         self._map = create_map()
         self._reference_path = create_ref_path(self._map)
+        self._csv_speed_profile: Optional[List[float]] = None
+        ref_csv = getattr(self._cfg.reference_path, "speed_profile_csv_path", "")
+        if getattr(self._cfg.reference_path, "use_csv_speed_profile", False) and ref_csv:
+            speed_path = self.in_pkg_share(ref_csv)
+            try:
+                with open(speed_path, newline="") as f:
+                    rows = list(csv.DictReader(f))
+                telemetry = [
+                    (float(r["x_m"]), float(r["y_m"]), float(r["vx_mps"]))
+                    for r in rows
+                ]
+                if telemetry and self._reference_path.waypoints:
+                    self._csv_speed_profile = []
+                    for wp in self._reference_path.waypoints:
+                        nearest = min(
+                            telemetry,
+                            key=lambda p: (p[0] - wp.x) ** 2 + (p[1] - wp.y) ** 2,
+                        )
+                        self._csv_speed_profile.append(nearest[2])
+                    self.get_logger().info(
+                        f"Using spatial CSV speed profile: {len(telemetry)} -> "
+                        f"{len(self._csv_speed_profile)} points, "
+                        f"max={max(self._csv_speed_profile) * 3.6:.1f} km/h"
+                    )
+            except (OSError, KeyError, ValueError) as exc:
+                self.get_logger().warning(f"CSV speed profile unavailable: {exc}")
         self._car = create_car(self._reference_path)
         self._mpc_cfg, self._mpc = create_mpc(self._car)
         compute_speed_profile(self._car, self._mpc_cfg)
@@ -803,11 +830,19 @@ class MPCController(Node):
         # print(f"car x: {self._car.temporal_state.x}, y: {self._car.temporal_state.y}, psi: {self._car.temporal_state.psi}")
         # print(f"mpc x: {self._mpc.model.temporal_state.x}, y: {self._mpc.model.temporal_state.y}, psi: {self._mpc.model.temporal_state.psi}")
 
-        with self._stats.time_block("control"):
-            u, max_delta = self._mpc.get_control()
-            # self.get_logger().info(f"u: {u}")
-
-        if self._ref_vel_configulator is not None:
+        if self._csv_speed_profile is not None:
+            # cfg v_max is km/h; update_v_max and the CSV profile are both m/s.
+            # Without this conversion the CSV branch armed the MPC with 40 m/s
+            # (144 km/h) instead of 11.1 m/s, so the velocity ceiling was gone
+            # entirely and min(v, 40) could never bind against a telemetry
+            # profile that peaks near 10 m/s. The other two call sites already
+            # convert (line ~268 via the parameter callback, and the ref_vel
+            # branch below), which is what makes this one easy to miss.
+            v_max_mps = kmh_to_m_per_sec(self._mpc_cfg.v_max)
+            v_ref = [min(v, v_max_mps) for v in self._csv_speed_profile]
+            self._reference_path.set_v_ref(v_ref)
+            self._mpc.update_v_max(v_max_mps)
+        elif self._ref_vel_configulator is not None:
             ref_vel_mps = self._ref_vel_configulator.get_ref_vel(self._mpc.model.wp_id)
             ref_vel_kmph = min(
                 kmh_to_m_per_sec(ref_vel_mps),
@@ -815,6 +850,10 @@ class MPCController(Node):
             self._mpc.update_v_max(ref_vel_kmph)
             v_ref: List[float] = [ref_vel_kmph] * len(self._reference_path.waypoints)
             self._reference_path.set_v_ref(v_ref)
+
+        with self._stats.time_block("control"):
+            u, max_delta = self._mpc.get_control()
+            # self.get_logger().info(f"u: {u}")
 
         # override by brake command if control is disabled
         if not self._enable_control:

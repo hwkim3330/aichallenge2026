@@ -148,7 +148,23 @@
     <include file="$(find-pkg-share aichallenge_submit_launch)/launch/control/mpc.launch.xml">
       <arg name="use_sim_time" value="$(var use_sim_time)"/>
       <arg name="track" value="$(var track)"/>
+      <arg name="output_control_cmd" value="/control/command/nominal_control_cmd"/>
     </include>
+
+    <!-- Sits between the MPC and the vehicle: passes nominal_control_cmd straight
+         through to control_cmd, and takes over with a reverse then drive manoeuvre
+         when the car is commanded to move but is not moving.
+         This matters specifically for evaluation. aichallenge/simulator_scripts/
+         eval.sh starts the simulator with wall recovery OFF, so a wall contact is
+         not undone for us: the car stays where it stopped and the run ends with
+         whatever laps it had. Measured today, a bad corner speed left the vehicle
+         stationary 62 m in, at full steering lock (0.93 rad) and full commanded
+         acceleration, for the rest of the session.
+         The package was already in aichallenge_submit but nothing launched it. -->
+    <node pkg="stuck_recovery_controller" exec="stuck_recovery_controller_node"
+          name="stuck_recovery_controller" output="screen">
+      <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
   </group>
 
   <group if="$(eval &quot;'$(var control_method)' == 'tiny_lidar_net'&quot;)">

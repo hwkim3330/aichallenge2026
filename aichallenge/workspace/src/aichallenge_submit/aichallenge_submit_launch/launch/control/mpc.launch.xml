@@ -2,6 +2,10 @@
 <launch>
   <arg name="use_sim_time" default="true"/>
   <arg name="use_obstacle_avoidance" default="false"/>
+  <!-- Where the MPC publishes. Left at the vehicle's own topic by default so this
+       file still works standalone; reference.launch.xml points it at
+       nominal_control_cmd so stuck_recovery_controller can sit in between. -->
+  <arg name="output_control_cmd" default="/control/command/control_cmd"/>
   <!-- Track selection: citycircuit uses config.yaml/ref_vel.yaml; other tracks use config_<track>.yaml/ref_vel_<track>.yaml -->
   <arg name="track" default="citycircuit"/>
   <arg name="config_file" default="$(eval &quot;'config.yaml' if '$(var track)' == 'citycircuit' else 'config_' + '$(var track)' + '.yaml'&quot;)"/>
@@ -11,6 +15,7 @@
         name="mpc_controller" output="screen"
         args="--config_path $(find-pkg-share multi_purpose_mpc_ros)/config/$(var config_file)
               --ref_vel_path $(find-pkg-share multi_purpose_mpc_ros)/config/$(var ref_vel_file)">
+    <remap from="/control/command/control_cmd" to="$(var output_control_cmd)"/>
     <param name="use_sim_time" value="$(var use_sim_time)"/>
     <param name="use_boost_acceleration" value="false"/>
     <param name="use_obstacle_avoidance" value="$(var use_obstacle_avoidance)"/>
