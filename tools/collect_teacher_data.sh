@@ -44,8 +44,9 @@ log "starting AWSIM (solo6lidar: 1 vehicle, lidar cpu, 6 laps, 480 s)"
 LOG_DIR=$LOG_DIR SIM_MODE=solo6lidar ROS_DOMAIN_ID=0 \
     docker compose up -d simulator >/dev/null 2>&1 || { log "simulator up failed"; exit 1; }
 
-log "starting Autoware on domain $DOMAIN"
-LOG_DIR=$LOG_DIR RUN_MODE=awsim docker compose up -d autoware >/dev/null 2>&1 \
+log "starting Autoware on domain $DOMAIN (control_method=${CONTROL_METHOD:-default})"
+LOG_DIR=$LOG_DIR RUN_MODE=awsim CONTROL_METHOD=${CONTROL_METHOD:-} \
+    docker compose up -d autoware >/dev/null 2>&1 \
     || { log "autoware up failed"; exit 1; }
 
 # Wait for AWSIM to reach Start, read from Unity's own Player.log.
@@ -80,12 +81,24 @@ if (( sim_up == 0 )); then
     exit 1
 fi
 
-log "starting recorder (log: $HOST_LOG_DIR/recorder.log)"
-# Keep the recorder's own output. The first attempts sent it to /dev/null, which is
-# how an empty bag got mistaken for a successful capture.
-docker compose exec -T -d autoware bash -lc \
-    "ROS_DOMAIN_ID=$DOMAIN /aichallenge/ml_workspace/record_data.bash > $LOG_DIR/recorder.log 2>&1" \
-    || log "WARNING: recorder launch returned non-zero"
+if [[ ${RECORD:-1} == 0 ]]; then
+    log "recording disabled (RECORD=0) -- no telemetry will exist for this run"
+else
+    # An AI-driven run must not land in ml_workspace/rawdata/: its bag is
+    # structurally identical to a teacher bag, so a later
+    # `extract --bags-dir rawdata` would silently train the model on its own
+    # commands. But recording nothing costs the diagnostics -- the 2026-08-02 BC
+    # test scored 0 laps and there was no telemetry to say whether the car never
+    # moved or drove off the line. So send non-MPC runs to a separate directory
+    # instead of switching recording off.
+    REC_DIR=${REC_DIR:-/aichallenge/ml_workspace/rawdata}
+    log "starting recorder -> $REC_DIR (log: $HOST_LOG_DIR/recorder.log)"
+    # Keep the recorder's own output. The first attempts sent it to /dev/null, which
+    # is how an empty bag got mistaken for a successful capture.
+    docker compose exec -T -d autoware bash -lc \
+        "ROS_DOMAIN_ID=$DOMAIN TLN_REC_DIR=$REC_DIR /aichallenge/ml_workspace/record_data.bash > $LOG_DIR/recorder.log 2>&1" \
+        || log "WARNING: recorder launch returned non-zero"
+fi
 
 log "running for up to ${WAIT_S}s"
 deadline=$((SECONDS + WAIT_S))
@@ -115,16 +128,20 @@ while (( SECONDS < deadline )); do
     # Guard against the other silent failure: recorder alive but capturing nothing.
     size=$(du -sk "$ROOT/aichallenge/ml_workspace/rawdata" 2>/dev/null | cut -f1)
     size=${size:-0}
-    if (( size <= last_size )); then
-        stall_checks=$((stall_checks + 1))
-        if (( stall_checks >= 8 )); then
-            log "ERROR: bag has not grown in ~2 min (${size} KB) -- aborting"
-            break
+    # Only meaningful while recording; with RECORD=0 the bag never grows and this
+    # would abort every run after two minutes.
+    if [[ ${RECORD:-1} != 0 ]]; then
+        if (( size <= last_size )); then
+            stall_checks=$((stall_checks + 1))
+            if (( stall_checks >= 8 )); then
+                log "ERROR: bag has not grown in ~2 min (${size} KB) -- aborting"
+                break
+            fi
+        else
+            stall_checks=0
         fi
-    else
-        stall_checks=0
+        last_size=$size
     fi
-    last_size=$size
     sleep 15
 done
 

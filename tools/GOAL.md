@@ -125,6 +125,41 @@ control_method: tiny_lidar_net | pilot_net | rl_train 모두 런치 연결됨
 `WeightedSmoothL1Loss` 가 두 채널 평균의 단순 합(가중치 각 1.0)이므로, 배울 수 없는 accel 이
 gradient 의 대부분을 차지한다.
 
+### 2026-08-02 — scratch 학습 가중치 주행 테스트: **0 랩 / 480 초, 기각**
+
+위 베이스라인(steer MAE 0.037 rad)을 배포 형식으로 변환해 넣고 solo6lidar 로 주행:
+**lap_count 0 / 6, finished=False.** 기존 가중치(55~65 초)로 원복함
+(`ckpt/tinylidarnet_weights.npy.bak_pre_bc20260802.npy` 가 그 백업).
+
+변수는 가중치 하나뿐이었다. `control_mode` 는 원래부터 `fixed`(=accel 무시, 조향만 모델)이고
+`acceleration` 0.6 도 건드리지 않았다. **전처리 불일치는 아니다** — 배포
+(`_preprocess_ranges`: NaN→0, inf→30, clip[0,30], 리사이즈, /30)와 학습
+(`clean_scan_array` + `lib/data.py` 의 `clip(0,30)/30`)이 정확히 일치함을 코드로 확인했다.
+
+**유력한 원인(미측정)**: covariate shift. open-loop MAE 0.037 rad 과 closed-loop 0 랩이
+동시에 성립하는 전형적인 behavioural cloning 실패다. 학습 데이터는 전부 **교사 분포**
+(MPC 가 레이싱 라인 위를 완벽히 도는 상태)이고, 학습자가 조금 벗어난 뒤 만나는 상태는
+데이터에 없다. 오차가 누적되면 미학습 영역으로 들어가 출력이 무의미해진다.
+
+그리고 이것이 기존 가중치가 왜 작동하는지도 설명한다 — 그쪽은
+**수집→파인튜닝→실측→재수집 3 라운드**를 거쳤고, 그것이 곧 on-policy 보정(DAgger 계열)이다.
+
+**결론: scratch 학습이 아니라 작동하는 가중치에서 파인튜닝할 것.** 새 데이터 33,429 샘플은
+그 용도로 쓴다. 이 레포에서 실제로 효과를 낸 유일한 방식이 그것이다.
+
+### TLN 모드에서 stuck_recovery 는 구조적으로 발동하지 않는다 (2026-08-02)
+
+0 랩 실행에 stuck-recovery 이벤트가 **0 건**이었고, 이유가 두 겹이다:
+
+1. `stuck_recovery_controller.cpp:127` 이 `command.longitudinal.speed < 1.0` 이면 조기 리턴한다.
+   TLN 노드는 `longitudinal.acceleration` 과 `lateral.steering_tire_angle` 만 채우고
+   `longitudinal.speed` 는 건드리지 않으므로 항상 0.0 < 1.0 이다.
+2. `reference.launch.xml` 이 tiny_lidar_net 포함 시 `control_cmd_topic` 을 덮어쓰지 않아
+   TLN 이 `/control/command/control_cmd` 로 **직접** 발행한다 — 복구 노드를 아예 우회한다.
+
+즉 AI 트랙에는 지금 어떤 교착 안전망도 없다. MPC 트랙의 안전망을 TLN 에 붙이려면 두 곳을 다
+고쳐야 한다.
+
 **다음 후보(미검증)**: 코드에 이미 `control_mode: 'fixed'`(고정 가속 + 모델 조향)가 있다.
 교사가 86% 최대 가속이니 `fixed` + `acceleration=1.0`(컨트롤러 상한)은 교사의 지배적 행동을
 거의 그대로 복제하면서, 잘 학습된 조향만 모델에 맡긴다. 이전에 "`ai` 가 `fixed` 보다 훨씬 빠르다"고

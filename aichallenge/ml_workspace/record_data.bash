@@ -31,6 +31,10 @@ TOPICS=(
     "/vehicle/status/velocity_status"
 )
 
-mkdir -p /aichallenge/ml_workspace/rawdata
-cd /aichallenge/ml_workspace/rawdata || exit
+# TLN_REC_DIR lets a non-MPC run record somewhere other than rawdata/. Bags from an
+# AI-driven run look exactly like teacher bags, so leaving them in rawdata/ risks a
+# later `extract --bags-dir rawdata` training the model on its own commands.
+REC_DIR="${TLN_REC_DIR:-/aichallenge/ml_workspace/rawdata}"
+mkdir -p "$REC_DIR"
+cd "$REC_DIR" || exit
 ros2 bag record "${TOPICS[@]}" -o "$(date +%Y%m%d-%H%M%S)" -s mcap --compression-format zstd --compression-mode file
