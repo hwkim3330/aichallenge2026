@@ -9,6 +9,28 @@ from typing import Tuple, List
 
 import numpy as np
 from rosbags.highlevel import AnyReader
+from rosbags.typesys import Stores, get_typestore, get_types_from_idl
+
+# Autoware's own message types are not in rosbags' built-in typestore. An MCAP bag
+# embeds its schemas so it decodes anyway, but a sqlite3 (.db3) bag does not --
+# there, deserialising /control/command/control_cmd raises KeyError, and the
+# per-message `except` below used to swallow it, so the run reported "insufficient
+# data" instead of a missing type. The IDL files in msgdefs/ were taken from
+# ghcr.io/automotiveaichallenge/autoware-universe:humble-latest
+# (/autoware/install/<pkg>/share/<pkg>/msg/*.idl).
+MSGDEFS_DIR = Path(__file__).resolve().parent / 'msgdefs'
+
+
+def build_typestore() -> 'object':
+    """Humble typestore plus Autoware's IDL-defined messages."""
+    typestore = get_typestore(Stores.ROS2_HUMBLE)
+    if MSGDEFS_DIR.is_dir():
+        extra = {}
+        for idl in sorted(MSGDEFS_DIR.rglob('*.idl')):
+            extra.update(get_types_from_idl(idl.read_text()))
+        if extra:
+            typestore.register(extra)
+    return typestore
 
 
 @dataclass
@@ -16,9 +38,18 @@ class ExtractionConfig:
     """Configuration parameters for data extraction."""
     control_topic: str
     scan_topic: str
+    speed_topic: str = '/vehicle/status/velocity_status'
     control_msg_type: str = 'autoware_auto_control_msgs/msg/AckermannControlCommand'
     scan_msg_type: str = 'sensor_msgs/msg/LaserScan'
+    speed_msg_type: str = 'autoware_auto_vehicle_msgs/msg/VelocityReport'
     max_scan_range: float = 30.0
+    # Drop samples whose measured speed is below this, in m/s. Race bags are
+    # mostly the car standing still -- the npc-with-* bags are 68% below
+    # 0.5 m/s -- and cloning those frames teaches the net to stop. Commanded
+    # speed is not a usable filter for this: it is non-zero through most of the
+    # stall (7% zero commanded against 68% actually stopped), because the
+    # controller keeps asking for motion it cannot achieve. 0.0 keeps everything.
+    min_speed: float = 0.0
 
 
 def worker_init(debug_mode: bool) -> None:
@@ -121,17 +152,18 @@ def synchronize_data(src_times: np.ndarray, target_times: np.ndarray) -> Tuple[n
 
 
 def process_bag(
-    bag_path: Path, 
-    output_root: Path, 
-    config: ExtractionConfig, 
-    debug: bool = False
+    bag_path: Path,
+    output_root: Path,
+    config: ExtractionConfig,
+    debug: bool = False,
+    label: str = ''
 ) -> None:
     """
     Worker function to process a single ROS bag file.
     Reads, cleans, synchronizes, and saves the data.
     """
     logger = logging.getLogger(__name__)
-    bag_name = bag_path.name
+    bag_name = label or bag_path.name
     out_dir = output_root / bag_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -141,12 +173,16 @@ def process_bag(
     cmd_times: List[int] = []
     scan_data: List[np.ndarray] = []
     scan_times: List[int] = []
+    speed_data: List[float] = []
+    speed_times: List[int] = []
+    decode_failures: dict = {}
+    first_failure: dict = {}
 
     # --- 1. Read Bag File ---
     t_start_read = time.perf_counter()
     try:
-        with AnyReader([bag_path]) as reader:
-            target_topics = [config.control_topic, config.scan_topic]
+        with AnyReader([bag_path], default_typestore=build_typestore()) as reader:
+            target_topics = [config.control_topic, config.scan_topic, config.speed_topic]
             connections = [c for c in reader.connections if c.topic in target_topics]
             
             if not connections:
@@ -172,8 +208,30 @@ def process_bag(
                             scan_vec = clean_scan_array(ranges, config.max_scan_range)
                             scan_data.append(scan_vec)
                             scan_times.append(timestamp)
-                except Exception:
+
+                    # Extract measured speed: a model input in its own right (an
+                    # acceleration target is unlearnable without the current
+                    # speed) and the only reliable stall detector.
+                    elif conn.topic == config.speed_topic:
+                        if conn.msgtype == config.speed_msg_type:
+                            speed_data.append(float(msg.longitudinal_velocity))
+                            speed_times.append(timestamp)
+                except Exception as exc:
+                    # Count and report instead of silently dropping: a wrong or
+                    # unregistered message type fails on every single message, and
+                    # a bare `continue` turned that into an empty result with no
+                    # explanation.
+                    decode_failures[type(exc).__name__] = (
+                        decode_failures.get(type(exc).__name__, 0) + 1
+                    )
+                    first_failure.setdefault(type(exc).__name__, f"{conn.topic}: {exc}")
                     continue
+        if decode_failures:
+            for name, count in sorted(decode_failures.items(), key=lambda kv: -kv[1]):
+                logger.error(
+                    f"{bag_name}: {count} messages failed to decode with {name} "
+                    f"-- first was {first_failure[name]}"
+                )
     except Exception as e:
         logger.error(f"Failed to read {bag_name}: {e}")
         return
@@ -203,7 +261,45 @@ def process_bag(
     synced_cmds = np_cmd_data[indices]
     synced_steers = synced_cmds[:, 0]
     synced_accels = synced_cmds[:, 1]
-    
+
+    # Measured speed, synchronised onto the same scan timestamps.
+    if speed_data:
+        np_speed_times = np.array(speed_times, dtype=np.int64)
+        np_speed_data = np.array(speed_data, dtype=np.float32)
+        s_sort = np.argsort(np_speed_times)
+        np_speed_times = np_speed_times[s_sort]
+        np_speed_data = np_speed_data[s_sort]
+        s_indices, _ = synchronize_data(np_scan_times, np_speed_times)
+        synced_speeds = np_speed_data[s_indices]
+    else:
+        logger.warning(
+            f"{bag_name}: no {config.speed_topic} messages; speeds.npy will not be "
+            f"written and --min-speed cannot be applied"
+        )
+        synced_speeds = None
+
+    if config.min_speed > 0.0:
+        if synced_speeds is None:
+            logger.error(
+                f"{bag_name}: --min-speed requires {config.speed_topic}, which this "
+                f"bag does not contain. Refusing to write an unfiltered dataset."
+            )
+            return
+        keep = synced_speeds >= config.min_speed
+        kept, total = int(keep.sum()), len(keep)
+        if not kept:
+            logger.error(f"{bag_name}: every sample is below --min-speed; nothing to save")
+            return
+        logger.info(
+            f"{bag_name}: speed filter >= {config.min_speed} m/s keeps "
+            f"{kept}/{total} ({100.0 * kept / total:.1f}%)"
+        )
+        np_scan_data = np_scan_data[keep]
+        synced_steers = synced_steers[keep]
+        synced_accels = synced_accels[keep]
+        synced_speeds = synced_speeds[keep]
+        deltas = deltas[keep]
+
     t_end_sync = time.perf_counter()
 
     # --- 3. Save Results ---
@@ -212,6 +308,8 @@ def process_bag(
     np.save(out_dir / 'scans.npy', np_scan_data)
     np.save(out_dir / 'steers.npy', synced_steers)
     np.save(out_dir / 'accelerations.npy', synced_accels)
+    if synced_speeds is not None:
+        np.save(out_dir / 'speeds.npy', synced_speeds)
     
     # Save delta times only when debugging to save disk space/IO
     if debug:
@@ -241,6 +339,23 @@ def process_bag(
         )
 
 
+def _unique_labels(bag_dirs: List[Path]) -> List[str]:
+    """One distinct output-directory name per bag.
+
+    Starts at the bag's own basename and prepends parent directories only as far
+    as needed to disambiguate, so the common case stays readable ("rosbag2_bc")
+    and the colliding case becomes "npc-with-1__bag".
+    """
+    depth = 1
+    while depth <= 6:
+        labels = ['__'.join(p.parts[-depth:]) for p in bag_dirs]
+        if len(set(labels)) == len(labels):
+            return labels
+        depth += 1
+    # Pathological: fall back to index suffixes rather than overwrite.
+    return [f"{p.name}__{i}" for i, p in enumerate(bag_dirs)]
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Extract and synchronize scan and control data from ROS 2 bags.',
@@ -256,6 +371,11 @@ def main():
     # Topic configuration
     parser.add_argument('--control-topic', type=str, default='/control/command/control_cmd', help='Topic name for control commands.')
     parser.add_argument('--scan-topic', type=str, default='/sensing/lidar/scan', help='Topic name for LiDAR scans.')
+    parser.add_argument('--speed-topic', type=str, default='/vehicle/status/velocity_status', help='Topic name for measured vehicle speed.')
+    parser.add_argument('--min-speed', type=float, default=0.0,
+                        help='Drop samples whose measured speed is below this (m/s). '
+                             'Race bags are mostly stalled frames; cloning them teaches '
+                             'the model to stand still. 0 keeps everything.')
     
     # Performance arguments
     default_workers = min(os.cpu_count() or 1, 8)
@@ -291,8 +411,19 @@ def main():
     logger.info(f"Found {len(bag_dirs)} bags. Starting processing with {num_workers} workers.")
 
     # --- Processing Phase ---
-    config = ExtractionConfig(control_topic=args.control_topic, scan_topic=args.scan_topic)
-    tasks = [(p, args.outdir, config, args.debug) for p in bag_dirs]
+    config = ExtractionConfig(control_topic=args.control_topic, scan_topic=args.scan_topic,
+                              speed_topic=args.speed_topic, min_speed=args.min_speed)
+    # Output directory names must be unique per bag. Deriving them from
+    # bag_path.name alone silently overwrote results whenever two bags shared a
+    # basename -- e.g. output/npc-with-{1,2,3}/bag are all called "bag", so a
+    # 3-bag run produced one bag's worth of data and reported success. Fall back
+    # to more of the path until the labels are distinct.
+    labels = _unique_labels(bag_dirs)
+    for p, label in zip(bag_dirs, labels):
+        if label != p.name:
+            logger.info(f"{p}: writing as '{label}' to keep output names unique")
+    tasks = [(p, args.outdir, config, args.debug, label)
+             for p, label in zip(bag_dirs, labels)]
 
     start_time = time.time()
     
