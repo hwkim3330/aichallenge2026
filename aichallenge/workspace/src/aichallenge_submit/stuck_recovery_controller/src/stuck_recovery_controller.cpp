@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <functional>
 #include <memory>
+#include <string>
 
 namespace stuck_recovery_controller
 {
@@ -30,6 +31,24 @@ constexpr double kYieldTimeoutSec = 0.8;  // faster detection (was 1.5s)
 constexpr double kCreepDurationSec = 0.6;  // shorter creep burst (was 1.0s)
 constexpr float kCreepSpeed = 2.0;
 constexpr float kCreepAcceleration = 0.5;
+// Creeps that failed to restore motion before we stop believing this is a
+// mutual yield and start reversing instead.
+constexpr int kYieldCreepFailuresBeforeReverse = 2;
+
+// Both 2026-08-02 escape changes are OFF by default. Measured together in the
+// npc1 condition they did what they were designed to do -- longest stall fell
+// from 42.8 s to 15.8 s and total stopped time from 60.1% to 55.4% -- but lap
+// progress regressed, 3.46 -> 2.85 laps@480s with stalls rising 23 -> 37. The car
+// escapes fast and re-wedges, which is the thrashing this repo already recorded
+// for aggressive escapes. They were also changed together, so neither is
+// attributable on its own; enable one at a time to settle it.
+bool envFlag(const char * name)
+{
+  const char * raw = std::getenv(name);
+  if (raw == nullptr) { return false; }
+  const std::string value(raw);
+  return !(value.empty() || value == "0" || value == "false");
+}
 
 }  // namespace
 
@@ -93,6 +112,7 @@ void StuckRecoveryController::updateStuckDetection(
       {
         recovery_attempts_ = 0;
         deep_escape_mode_ = false;
+        yield_creep_failures_ = 0;
         recovery_cooldown_until_.reset();
         forward_progress_start_time_.reset();
       }
@@ -176,16 +196,57 @@ bool StuckRecoveryController::runRecovery(const rclcpp::Time & now)
       publishCommand(kCreepSpeed, kCreepAcceleration);
       return true;
     }
-    recovery_start_time_.reset();
     creep_mode_ = false;
+    // Did the creep actually free us? If the car is still stationary it was not a
+    // mutual yield at all -- it is jammed, and creeping forward into whatever is
+    // holding it will never help.
+    //
+    // This matters because the reverse manoeuvre, the only thing that can extract a
+    // jammed car, lives behind the stuck detector, which requires the nominal
+    // command to be asking for motion (speed >= 1.0 and accel >= 0.3). When the QP
+    // goes infeasible the MPC commands ~0, so that gate stays shut. Measured
+    // 2026-08-02: during a 144 s standstill the nominal command met the stuck gate
+    // in only 16.6% of samples while the car was below 0.1 m/s for 71.5% of it, and
+    // recovery never reversed once. Escalate here instead of waiting for a gate that
+    // is not going to open.
+    static const bool kCreepEscalationEnabled = envFlag("RECOVERY_CREEP_ESCALATION");
+    if (kCreepEscalationEnabled && std::abs(latest_velocity_) <= kStuckSpeedThreshold) {
+      ++yield_creep_failures_;
+      if (yield_creep_failures_ >= kYieldCreepFailuresBeforeReverse) {
+        recovery_start_time_ = now;
+        ++recovery_attempts_;
+        deep_escape_mode_ = recovery_attempts_ >= 3;
+        recovery_steering_ = -recovery_steering_;
+        RCLCPP_INFO(
+          get_logger(),
+          "yield creep failed %d times, escalating to reverse escape: attempt=%d deep=%s",
+          yield_creep_failures_, recovery_attempts_, deep_escape_mode_ ? "true" : "false");
+        return true;
+      }
+      // Allow the yield detector to fire again rather than latching after one try.
+      yield_recovery_attempted_ = false;
+    } else {
+      yield_creep_failures_ = 0;
+    }
+    recovery_start_time_.reset();
     return false;
   }
 
   const double reverse_duration =
     deep_escape_mode_ ? kDeepReverseDurationSec : kReverseDurationSec;
-  const float escape_steering = deep_escape_mode_
-    ? (recovery_steering_ >= 0.0F ? 0.55F : -0.55F)
-    : recovery_steering_;
+  // Deep escape used to alternate only between +0.55 and -0.55 -- full lock both
+  // ways. Measured 2026-08-02 in the npc1 condition: three stalls of 21-43 s where
+  // every lidar sector read 0.05 m and the node was commanding full-lock reverse the
+  // whole time without the car moving. Reversing at full lock swings the tail
+  // sideways, and when the car is jammed there is no lateral room to swing into.
+  // Straight reverse needs the least clearance and was never being tried, so cycle
+  // through it every third attempt.
+  static const bool kStraightEscapeEnabled = envFlag("RECOVERY_STRAIGHT_ESCAPE");
+  const bool straight_escape =
+    kStraightEscapeEnabled && deep_escape_mode_ && (recovery_attempts_ % 3 == 0);
+  const float escape_steering = !deep_escape_mode_
+    ? recovery_steering_
+    : (straight_escape ? 0.0F : (recovery_steering_ >= 0.0F ? 0.55F : -0.55F));
 
   // STEP1. Reverse.  After repeated failed attempts, use a longer escape
   // burst so the vehicle can clear the wall instead of settling back into it.

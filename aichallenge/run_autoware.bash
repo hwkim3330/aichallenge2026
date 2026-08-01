@@ -38,6 +38,10 @@ esac
 [[ -n "${GUARD_FRONT_LIMIT:-}" ]] && opts+=("guard_front_limit:=${GUARD_FRONT_LIMIT}")
 [[ -n "${GUARD_SIDE_LIMIT:-}" ]] && opts+=("guard_side_limit:=${GUARD_SIDE_LIMIT}")
 [[ -n "${GUARD_SPEED:-}" ]] && opts+=("guard_speed:=${GUARD_SPEED}")
+# 2026-08-02 escape experiments, read straight from the environment by
+# stuck_recovery_controller (not launch args). Default off; see GOAL.md.
+export RECOVERY_STRAIGHT_ESCAPE="${RECOVERY_STRAIGHT_ESCAPE:-}"
+export RECOVERY_CREEP_ESCALATION="${RECOVERY_CREEP_ESCALATION:-}"
 
 export ROS_DOMAIN_ID=$id
 

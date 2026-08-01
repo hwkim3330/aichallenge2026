@@ -38,6 +38,8 @@ x-autoware-base: &autoware-base
     - GUARD_FRONT_LIMIT=${GUARD_FRONT_LIMIT:-}
     - GUARD_SIDE_LIMIT=${GUARD_SIDE_LIMIT:-}
     - GUARD_SPEED=${GUARD_SPEED:-}
+    - RECOVERY_STRAIGHT_ESCAPE=${RECOVERY_STRAIGHT_ESCAPE:-}
+    - RECOVERY_CREEP_ESCALATION=${RECOVERY_CREEP_ESCALATION:-}
   volumes:
     - ./output:${OUTPUT_ROOT:-/output}
     - ./aichallenge:/aichallenge

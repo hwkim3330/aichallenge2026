@@ -51,6 +51,10 @@ private:
   float recovery_steering_{0.45F};
   int recovery_attempts_{0};
   bool deep_escape_mode_{false};
+  // Consecutive yield creeps that did not restore motion. A jammed car looks
+  // like a mutual-yield standstill to the detector, but a 0.6 s forward creep
+  // cannot free it; after this many failures escalate to the reverse escape.
+  int yield_creep_failures_{0};
 };
 
 }  // namespace stuck_recovery_controller
