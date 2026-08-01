@@ -15,6 +15,9 @@
   <arg name="mpc_config_file" default="config.yaml"/>
   <arg name="mpc_ref_vel_file" default=""/>
   <arg name="use_obstacle_avoidance" default="false"/>
+  <arg name="guard_front_limit" default="1.25"/>
+  <arg name="guard_side_limit" default="0.72"/>
+  <arg name="guard_speed" default="5.5"/>
 
   <log message="The arguments for aichallenge_submit_launch."/>
   <log message=" - simulation: $(var simulation)"/>
@@ -35,5 +38,8 @@
     <arg name="mpc_config_file" value="$(var mpc_config_file)"/>
     <arg name="mpc_ref_vel_file" value="$(var mpc_ref_vel_file)"/>
     <arg name="use_obstacle_avoidance" value="$(var use_obstacle_avoidance)"/>
+    <arg name="guard_front_limit" value="$(var guard_front_limit)"/>
+    <arg name="guard_side_limit" value="$(var guard_side_limit)"/>
+    <arg name="guard_speed" value="$(var guard_speed)"/>
   </include>
 </launch>

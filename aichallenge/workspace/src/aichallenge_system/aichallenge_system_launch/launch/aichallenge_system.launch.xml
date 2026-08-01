@@ -13,6 +13,12 @@
     <arg name="mpc_config_file" default="config.yaml"/>
     <arg name="mpc_ref_vel_file" default=""/>
     <arg name="use_obstacle_avoidance" default="false"/>
+    <!-- lidar_guard thresholds. Threaded so the guard can be isolated from the CPU
+         cost of CPU-rendered LiDAR: setting the limits to 0 leaves LiDAR on and
+         makes the guard inert. Without this the args are silently unreachable. -->
+    <arg name="guard_front_limit" default="1.25"/>
+    <arg name="guard_side_limit" default="0.72"/>
+    <arg name="guard_speed" default="5.5"/>
 
     <let name="domain_id" value="$(var domain_id)"/>
     <let name="rviz_config" value="$(find-pkg-share aichallenge_system_launch)/config/autoware_vehicle.rviz"/>
@@ -40,6 +46,9 @@
         <arg name="mpc_config_file" value="$(var mpc_config_file)"/>
         <arg name="mpc_ref_vel_file" value="$(var mpc_ref_vel_file)"/>
         <arg name="use_obstacle_avoidance" value="$(var use_obstacle_avoidance)"/>
+        <arg name="guard_front_limit" value="$(var guard_front_limit)"/>
+        <arg name="guard_side_limit" value="$(var guard_side_limit)"/>
+        <arg name="guard_speed" value="$(var guard_speed)"/>
     </include>
 
     <!-- Visualization. -->

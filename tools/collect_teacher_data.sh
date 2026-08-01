@@ -19,6 +19,13 @@ ROOT=/home/kim/aichallenge2026
 cd "$ROOT"
 
 LABEL=${1:-teacher_$(date +%Y%m%d-%H%M%S)}
+# Container path the recorder writes to, and the same place on the host.
+# These must stay in step: the stall check below used to watch a hardcoded
+# rawdata/ while REC_DIR pointed elsewhere, so it saw no growth and aborted
+# every run after two minutes.
+REC_DIR=${REC_DIR:-/aichallenge/ml_workspace/rawdata}
+REC_DIR_HOST=$ROOT${REC_DIR#/aichallenge}
+REC_DIR_HOST=${REC_DIR_HOST/#$ROOT\/ml_workspace/$ROOT\/aichallenge\/ml_workspace}
 WAIT_S=${2:-620}          # 480 s race + ~30 s AWSIM boot + margin
 DOMAIN=1                  # AWSIM bridges vehicle 1's topics onto domain 1
 LOG_DIR=/output/$LABEL
@@ -40,8 +47,12 @@ mkdir -p "$HOST_LOG_DIR"
 SUMMARY=$ROOT/aichallenge/result-summary.json
 BASE_MTIME=$(stat -c %Y "$SUMMARY" 2>/dev/null || echo 0)
 
-log "starting AWSIM (solo6lidar: 1 vehicle, lidar cpu, 6 laps, 480 s)"
-LOG_DIR=$LOG_DIR SIM_MODE=solo6lidar ROS_DOMAIN_ID=0 \
+# SIM_MODE selects the AWSIM launch script. solo6lidar (default) is 1 vehicle +
+# LiDAR, the right shape for teacher data. npc1 adds the NPC that every scored
+# battle includes, which is the condition where lap progress collapses.
+MODE=${SIM_MODE:-solo6lidar}
+log "starting AWSIM (mode=$MODE)"
+LOG_DIR=$LOG_DIR SIM_MODE=$MODE ROS_DOMAIN_ID=0 \
     docker compose up -d simulator >/dev/null 2>&1 || { log "simulator up failed"; exit 1; }
 
 log "starting Autoware on domain $DOMAIN (control_method=${CONTROL_METHOD:-default})"
@@ -91,7 +102,6 @@ else
     # test scored 0 laps and there was no telemetry to say whether the car never
     # moved or drove off the line. So send non-MPC runs to a separate directory
     # instead of switching recording off.
-    REC_DIR=${REC_DIR:-/aichallenge/ml_workspace/rawdata}
     log "starting recorder -> $REC_DIR (log: $HOST_LOG_DIR/recorder.log)"
     # Keep the recorder's own output. The first attempts sent it to /dev/null, which
     # is how an empty bag got mistaken for a successful capture.
@@ -126,7 +136,7 @@ while (( SECONDS < deadline )); do
         fi
     fi
     # Guard against the other silent failure: recorder alive but capturing nothing.
-    size=$(du -sk "$ROOT/aichallenge/ml_workspace/rawdata" 2>/dev/null | cut -f1)
+    size=$(du -sk "$REC_DIR_HOST" 2>/dev/null | cut -f1)
     size=${size:-0}
     # Only meaningful while recording; with RECORD=0 the bag never grows and this
     # would abort every run after two minutes.
@@ -162,7 +172,7 @@ if [[ -s $SUMMARY ]]; then
     fi
 fi
 
-BAGS=$ROOT/aichallenge/ml_workspace/rawdata
+BAGS=$REC_DIR_HOST
 log "bags now in $BAGS:"
 ls -1t "$BAGS" 2>/dev/null | head -5
 du -sh "$BAGS" 2>/dev/null
