@@ -146,6 +146,22 @@ class MPCController(Node):
         self._ref_vel_config_path: Optional[str] = ref_vel_config_path
         self._cfg = self._load_config()
         self._odom: Optional[Odometry] = None
+
+        def _env(name, default):
+            raw = (os.environ.get(name) or "").strip()
+            return default if raw == "" else raw
+
+        # DEFAULT ON: 12 races in the scored 3-car format took lap count from 32 to 67
+        # with this alone. See the note in the control loop for the mechanism.
+        self._antideadlock = _env("MPC_ANTIDEADLOCK", "1").lower() not in ("0", "false")
+        self._antideadlock_speed = float(_env("MPC_ANTIDEADLOCK_SPEED", "1.5"))
+        # 40, not 20: completion responds monotonically to the rescue delay and 20 is the
+        # worst value measured -- TICKS 20 -> 7/12 six-lap finishes, 40 -> 9/12, 70 -> 9/12
+        # (tools/GOAL.md, 12 races in the scored format). 40 is chosen over 70 because they
+        # tie on completion and 40 spends less time stalled per event. Pulling out faster
+        # is not better: the fast-escape arm (0.2 s, 3.0 m/s) thrashed with 498 rescues.
+        self._antideadlock_ticks = int(_env("MPC_ANTIDEADLOCK_TICKS", "40"))
+        self._deadlock_ticks = 0
         self._enable_control = True
         self._initialize()
         self._setup_parameters_callback()
@@ -886,6 +902,34 @@ class MPCController(Node):
             self.get_logger().error("No control signal", throttle_duration_sec=1)
             u = [0.0, 0.0]
             # continue
+
+        # Deadlock breaker.
+        #
+        # stuck_recovery_controller.cpp:127 bails out when
+        # `command.longitudinal.speed < kCommandSpeedThreshold` (1.0), so a stationary car
+        # whose MPC is commanding zero is invisible to it -- the one failure the recovery
+        # node exists for is the one it cannot see. Measured today: a run completed lap 3 at
+        # t+164 s and then sat for 391 s with commanded speed 0.0, steering 0.0, measured
+        # speed 0.0002 and ZERO stuck-recovery events. Several runs I had written off as
+        # harness truncation were this.
+        #
+        # The QP goes infeasible when |e_y| exceeds max_width - width/sqrt(2) = 1.94 m
+        # (step 1's e_y is pinned by step 0, so there is no feasible point at all), and an
+        # infeasible solve here yields a zero command. Rather than try to keep the QP
+        # feasible in every pose -- attempted, and the corridor funnel does not cover the
+        # yawed case -- hand the situation to the node built for it by asking for a speed it
+        # can actually see.
+        if self._antideadlock:
+            if abs(v) < 0.15 and u[0] < 1.0:
+                self._deadlock_ticks += 1
+            else:
+                self._deadlock_ticks = 0
+            if self._deadlock_ticks >= self._antideadlock_ticks:
+                u[0] = max(float(u[0]), self._antideadlock_speed)
+                self.get_logger().warn(
+                    f"deadlock: commanding {u[0]:.2f} m/s so stuck_recovery can see it "
+                    f"(wp={self._mpc.model.wp_id}, v={v:.3f})",
+                    throttle_duration_sec=2.0)
 
         acc = 0.
         bug_acc_enabled = False

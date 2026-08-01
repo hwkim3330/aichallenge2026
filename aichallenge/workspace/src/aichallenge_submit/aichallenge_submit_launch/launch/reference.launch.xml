@@ -27,6 +27,9 @@
        several vehicles with different MPC tuning (set MPC_CONFIG_FILE per
        container). Empty keeps the track default. -->
   <arg name="mpc_config_file" default=""/>
+  <arg name="guard_front_limit" default="1.25"/>
+  <arg name="guard_side_limit" default="0.72"/>
+  <arg name="guard_speed" default="5.5"/>
   <arg name="mpc_ref_vel_file" default=""/>
   <!-- Gates ALL other-vehicle awareness in mpc_controller: the V2X tracker, the
        path_constraints subscription and the wait for it. config.yaml's
@@ -172,8 +175,32 @@
       <arg name="mpc_ref_vel_file" value="$(var mpc_ref_vel_file)"/>
       <arg name="use_boost_acceleration" value="$(var use_boost_acceleration)"/>
       <arg name="use_obstacle_avoidance" value="$(var use_obstacle_avoidance)"/>
-      <arg name="output_control_cmd" value="/control/command/nominal_control_cmd"/>
+      <arg name="output_control_cmd" value="/control/command/mpc_cmd"/>
     </include>
+
+    <!-- LiDAR safety layer, between the MPC and the recovery node.
+         Measured 2026-07-30: with one Autoware car and one AWSIM NPC on track,
+         /v2x/vehicle_positions carried ZERO messages in 12 s while
+         /sensing/lidar/scan carried 241 at 750 beams. Our MPC sees rivals only
+         through v2x (reference_path.use_path_constraints_topic), so the NPC that
+         every scored battle includes (lapping in ~149 s per the board's own
+         records) is invisible to us. LiDAR is the only sensor that sees it.
+         The official 3-vehicle config runs lidar on (RaceConfig/eval-3p.yaml).
+         Always in the chain: with no scan it is an exact passthrough (it publishes
+         on command arrival, not on a timer, so it adds no latency and never
+         republishes a stale command). A/B it by turning the simulator's LiDAR on
+         or off rather than by rewiring.
+         Ahead of the recovery node on purpose: a guard that brakes for the wall
+         it is being reversed away from would fight the recovery manoeuvre. -->
+    <node pkg="tiny_lidar_net_controller" exec="lidar_guard.py"
+          name="lidar_guard" output="screen">
+      <param name="use_sim_time" value="$(var use_sim_time)"/>
+      <param name="front_limit" value="$(var guard_front_limit)"/>
+      <param name="side_limit" value="$(var guard_side_limit)"/>
+      <param name="guard_speed" value="$(var guard_speed)"/>
+      <remap from="/control/command/control_cmd"
+             to="/control/command/nominal_control_cmd"/>
+    </node>
 
     <!-- Sits between the MPC and the vehicle: passes nominal_control_cmd straight
          through to control_cmd, and takes over with a reverse then drive manoeuvre

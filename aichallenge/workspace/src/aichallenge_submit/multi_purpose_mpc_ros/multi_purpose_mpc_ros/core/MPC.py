@@ -1,4 +1,6 @@
+import os
 from typing import Tuple
+
 import numpy as np
 import osqp
 from scipy import sparse
@@ -10,6 +12,23 @@ PREDICTION = '#BA4A00'
 ##################
 # MPC Controller #
 ##################
+
+
+def solved(dec) -> bool:
+    """Did OSQP actually converge?
+
+    Defensive about the osqp version: status_val 1 is OSQP_SOLVED, and some builds report
+    'solved' / 'solved inaccurate' only as a string. An unreadable status is treated as
+    NOT solved, which costs one relaxation attempt and never a wrong accept.
+    """
+    info = getattr(dec, "info", None)
+    if info is None:
+        return False
+    val = getattr(info, "status_val", None)
+    if val is not None:
+        return val == 1
+    return str(getattr(info, "status", "")).strip().lower() == "solved"
+
 
 class MPC:
     def __init__(self, model, N, Q, R, QN, StateConstraints, InputConstraints,
@@ -50,8 +69,52 @@ class MPC:
 
         # 追加: ay_maxによる速度制限の方式切り替え
         self.use_max_kappa_pred = use_max_kappa_pred
+        # Corridor funnel. The usable e_y band is NOT max_width: update_path_constraints
+        # subtracts safety_margin = width/sqrt(2) = 1.061 for width 1.50, so max_width 3.0
+        # leaves +/-1.94 m. Step 0 is pinned to the measured e_y by equality, and step 1's
+        # e_y is fully determined by it (the e_y row of B is zero, see
+        # spatial_bicycle_models.linearize), so once the car is past ~1.94 m the QP has no
+        # feasible point at all -- not a poor solution, none. OSQP then returns an
+        # unconverged iterate, the command stays at full section speed, and the car
+        # accelerates into the wall until stuck_recovery reverses it, still outside the
+        # band and pointing wrong, so it re-wedges. Measured: one lap pinballed for 32 s
+        # across seven such cycles.
+        #
+        # So the excursion is not what costs 20-70 s; being unable to PLAN a return is.
+        # The funnel admits the car's current offset at the near steps and closes back to
+        # the nominal band at funnel_rate per step, which keeps the problem feasible and
+        # turns a pinball into a planned rejoin. The cost reference is deliberately left at
+        # the original band centre so the objective still pulls toward the line.
+        # Env-switched rather than config-switched so the two arms of an A/B differ by
+        # nothing except this flag -- routing it through the yaml would also change which
+        # config file each arm loads.
+        # docker-compose passes `${VAR:-}` for anything unset, i.e. the empty string
+        # rather than an absent variable, so os.environ.get's default never fires and
+        # float("") raises. Treat blank as unset.
+        def _env(name, default):
+            raw = (os.environ.get(name) or "").strip()
+            return default if raw == "" else raw
+
+        # DEFAULT ON as of the 12-race sweep recorded below. Set MPC_FUNNEL=0 to disable.
+        #
+        #   arm            laps  6-lap finishes  mean 6-lap total
+        #   funnel+anti      68        9/12            338.3
+        #   antideadlock     67       10/12            367.6
+        #   base             32        4/12            313.1
+        #
+        # 12 races in the scored format (online3.sh: 3 cars, collisions on, handicap on,
+        # ranking on, 6 laps, 480 s), grid rotated every race. base is faster when it
+        # finishes but finishes only in grid slot 3 (4/4 there, 2/8 elsewhere).
+        self.funnel_enabled = _env("MPC_FUNNEL", "1").lower() not in ("0", "false")
+        self.funnel_slack = float(_env("MPC_FUNNEL_SLACK", "0.20"))
+        # 0.15, not 0.25: measured to beat both 0.25 and 0.08 (tools/GOAL.md) -- the funnel
+        # has to open, but it also has to close, and 0.25 closes too hard while 0.08 barely
+        # closes at all.
+        self.funnel_rate = float(_env("MPC_FUNNEL_RATE", "0.15"))
+
         # 既存の初期化
         self.current_prediction = None
+        self.debug_funnel = 0.0
         self.infeasibility_counter = 0
         self.last_solved_wp_id = 0
         self.current_control = np.zeros((self.nu*self.N))
@@ -117,7 +180,13 @@ class MPC:
         kappa_bound = abs(self.input_constraints['umax'][1])
         kappa_pred = np.clip(kappa_pred, -kappa_bound, kappa_bound)
 
-        # Consider control delay
+        kappa_ref_horizon = np.zeros(N)
+        delta_s_horizon = np.zeros(N)
+
+        # Consider control delay. Snapshot/restore: _init_problem is called again by the
+        # relaxation retry, and an unguarded += would build each retry's problem 1.2 m
+        # further ahead than the frame x0/e_y0 were measured in.
+        wp_id_entry = self.model.wp_id
         self.model.wp_id += self.wp_id_offset
 
         # Iterate over horizon
@@ -127,6 +196,8 @@ class MPC:
             next_waypoint = self.model.reference_path.get_waypoint(self.model.wp_id + n + 1)
             delta_s = next_waypoint - current_waypoint
             kappa_ref = current_waypoint.kappa
+            kappa_ref_horizon[n] = kappa_ref
+            delta_s_horizon[n] = delta_s
 
             # Clip reference velocity
             v_ref = np.clip(current_waypoint.v_ref, self.input_constraints['umin'][0], self.input_constraints['umax'][0])
@@ -178,8 +249,20 @@ class MPC:
                 N, self.model.length, self.model.width, safety_margin)
         else:
             ref_wp_id = (self.model.wp_id + 1) % len(self.model.reference_path.path_constraints[0])
-            ub = self.model.reference_path.path_constraints[0][ref_wp_id]
-            lb = self.model.reference_path.path_constraints[1][ref_wp_id]
+            # .copy() is load-bearing. set_path_constraints stores (n_wp-1, N) arrays and
+            # this indexing returns a ROW VIEW, so the `ub -= safety_margin_diff` below
+            # writes through into persistent storage. Nothing restores it: the submission
+            # launch path (control/mpc.launch.xml) sets use_obstacle_avoidance=false and
+            # never starts path_constraints_provider, so these bounds are built once by
+            # update_simple_path_constraints and never republished. Worse, the diff is taken
+            # against the constant model.safety_margin every call, so the retry loop ADDS
+            # widening instead of setting it -- three retries take a stored bound from 1.90
+            # to 3.17 m, permanently, for that waypoint's whole 20-column window, on a
+            # circular track. The car then plans through the wall on later laps, and the
+            # funnel below silently disables itself at stuck locations because e_y0 no
+            # longer exceeds the corrupted ub[0].
+            ub = self.model.reference_path.path_constraints[0][ref_wp_id].copy()
+            lb = self.model.reference_path.path_constraints[1][ref_wp_id].copy()
             self.model.reference_path.border_cells.current_wp_id = ref_wp_id
 
             # Update safety margin if provided as argument and different from current value
@@ -193,10 +276,60 @@ class MPC:
                 lb[infeasible_index] = 0.0
 
         # Update dynamic state constraints
-        xmin_dyn[0] = xmax_dyn[0] = self.model.spatial_state.e_y
+        e_y0 = float(self.model.spatial_state.e_y)
+
+        # Keep the cost reference at the ORIGINAL band centre. If it were recomputed after
+        # the funnel opens the corridor, the objective would pull the car further out.
+        xr_e_y = (lb + ub) / 2
+
+        over = 0.0
+        if not self.funnel_enabled:
+            pass
+        elif e_y0 > ub[0]:
+            over = e_y0 - ub[0]
+        elif e_y0 < lb[0]:
+            over = e_y0 - lb[0]
+        if over != 0.0:
+            # A relief that decays from k=0 is infeasible exactly in the case it exists
+            # for. The plan is effectively a single constant-curvature arc: the
+            # steering-rate rows bound consecutive planned curvatures by
+            # scaled_steer_rate_max*Ts = 0.0053, so the whole horizon can only sweep 0.107
+            # of the +/-0.668 input range. With e_y1 = e_y0 + delta_s*e_psi0 pinned (the
+            # e_y row of B is zero) and e_psi unbounded, a car yawed outward keeps moving
+            # outward for several steps no matter what u0 is. Decaying relief therefore
+            # binds at step 2 for outward yaw beyond ~9 degrees on a straight and ~5 in a
+            # curve -- i.e. for every post-contact pose.
+            #
+            # So forecast the excursion under maximum-effort recovery and keep the bound
+            # ahead of it, only then closing at funnel_rate.
+            e_psi0 = float(self.model.spatial_state.e_psi)
+            sgn = 1.0 if over > 0.0 else -1.0
+            psi = max(0.0, sgn * e_psi0)          # outward yaw only
+            e_pred = abs(over)
+            relief = np.zeros(len(ub))
+            kappa_bound = abs(self.input_constraints['umax'][1])
+            close_cap = self.funnel_rate / max(delta_s_horizon[0], 1e-6)
+            for k in range(len(ub)):
+                relief[k] = max(e_pred + self.funnel_slack,
+                                abs(over) + self.funnel_slack - self.funnel_rate * k,
+                                0.0)
+                ds = delta_s_horizon[min(k, N - 1)]
+                e_pred += ds * psi
+                authority = ds * max(kappa_bound - abs(kappa_ref_horizon[min(k, N - 1)]),
+                                     0.0)
+                psi = max(psi - authority, -close_cap)
+            if over > 0.0:
+                ub = ub + relief
+            else:
+                lb = lb - relief
+            self.debug_funnel = float(abs(over))
+        else:
+            self.debug_funnel = 0.0
+
+        xmin_dyn[0] = xmax_dyn[0] = e_y0
         xmin_dyn[self.nx::self.nx] = lb
         xmax_dyn[self.nx::self.nx] = ub
-        xr[self.nx::self.nx] = (lb + ub) / 2
+        xr[self.nx::self.nx] = xr_e_y
 
         # Get equality matrix
         Ax = sparse.kron(sparse.eye(N + 1), -sparse.eye(self.nx)) + sparse.csc_matrix(A)
@@ -257,6 +390,11 @@ class MPC:
         self.optimizer = osqp.OSQP()
         self.optimizer.setup(P=P, q=q, A=A_full, l=l, u=u, verbose=False)
 
+        # Restore the frame. Without this each relaxation retry builds its problem
+        # wp_id_offset further ahead than the frame x0/e_y0 were measured in, and
+        # update_prediction then reads the drifted id too.
+        self.model.wp_id = wp_id_entry
+
     def get_control(self) -> Tuple[np.ndarray, float]:
         """
         Get control signal given the current position of the car.
@@ -284,17 +422,45 @@ class MPC:
         try:
             dec = self.optimizer.solve()
             control_signals = np.array(dec.x[-N*nu:])
-            use_control_signals = control_signals[1::2]
 
-            if not np.all(use_control_signals):
-                for i in range(1, 6):
+            # The old trigger was `not np.all(control_signals[1::2])` -- the truthiness of
+            # floats -- so it only fired when a planned curvature was EXACTLY 0.0, never for
+            # the unconverged iterates it exists to handle. But simply asking the solver
+            # instead costs far too much: OSQP rarely converges fully here, so the loop ran
+            # up to five extra _init_problem + solve rounds every tick and the measured
+            # control rate fell from 40 Hz to 10.45 Hz, which wedged the car within one lap
+            # (33 stuck events, reverse commanded). _init_problem rebuilds the whole sparse
+            # system in a Python loop over the horizon, so it is not cheap enough to repeat.
+            #
+            # So: retry at most ONCE, and only when the car is genuinely outside the
+            # corridor, which is the only case where relaxing the margin can help. The
+            # funnel already restores feasibility there, making this a second line of
+            # defence rather than the mechanism.
+            # MPC_FUNNEL=0 must reproduce the SHIPPED behaviour exactly, including this
+            # trigger. `np.all(control_signals[1::2])` is not as dead as it looks: it is
+            # False whenever ANY planned curvature is exactly 0.0, which does happen on
+            # straights, and the relaxation that follows was evidently doing useful work.
+            # Gating the retry on the funnel alone made the control arm of the A/B a third
+            # configuration rather than the baseline -- it deadlocked after one lap, twice,
+            # with zero stuck-recovery events, which is the signature of a zero command the
+            # recovery node cannot see.
+            if self.funnel_enabled:
+                retry = self.debug_funnel > 0.0 and not solved(dec)
+                first = 5          # ONE attempt: range(5, 6). first=4 ran two.
+            else:
+                retry = not np.all(control_signals[1::2])
+                first = 1
+            if retry:
+                for i in range(first, 6):
                     relaxed_safety_margin = self.model.safety_margin * ((5-i) / 5.0)
                     self._init_problem(N, relaxed_safety_margin)
                     dec = self.optimizer.solve()
                     control_signals = np.array(dec.x[-N*nu:])
-                    use_control_signals = control_signals[1::2]
 
-                    if self.infeasibility_counter == 0 and np.all(use_control_signals):
+                    ok = (solved(dec) if self.funnel_enabled else
+                          (self.infeasibility_counter == 0
+                           and np.all(control_signals[1::2])))
+                    if ok:
                         if self.last_solved_wp_id != self.model.wp_id:
                             print(f"Relaxed safety margin by {relaxed_safety_margin} ({5-i}/5) to solve the problem")
                         break

@@ -10,6 +10,7 @@ ament_python_install_package(${PROJECT_NAME})
 # Install entry point script for the node
 install(PROGRAMS
   tiny_lidar_net_controller/tiny_lidar_net_controller_node.py
+  tiny_lidar_net_controller/lidar_guard.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
