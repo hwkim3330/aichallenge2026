@@ -65,6 +65,8 @@ def analyse(bag: Path, ts, lap_m: float, window_s: float, stall_below: float):
         runs.append(cur)
 
     return {
+        'stall_durations': np.array(runs) / hz if runs else np.array([]),
+        'total_stalled_s': sum(runs) / hz if runs else 0.0,
         'duration': t[-1] - t[0],
         'laps': TRAPZ(fwd[inside], t[inside]) / lap_m,
         'distance': TRAPZ(fwd, t),
@@ -87,8 +89,12 @@ def main() -> int:
     args = ap.parse_args()
 
     ts = typestore()
+    # total_stalled is the column that matters. Across four npc1 configurations on
+    # 2026-08-02 it sat at 266-300 s regardless of guard limits or escape logic, while
+    # laps@480s for one unchanged configuration ranged 2.37-3.46 -- so per-run laps are
+    # too noisy to compare and the interventions only redistributed stall lengths.
     print(f"{'bag':26s} {'dur':>6s} {'laps@w':>7s} {'dist(m)':>8s} "
-          f"{'stop%':>6s} {'stalls':>7s} {'longest':>8s} {'mean v':>7s}")
+          f"{'stop%':>6s} {'stalls':>7s} {'stalled_s':>10s} {'longest':>8s} {'mean v':>7s}")
     ok = True
     for bag in args.bags:
         st = analyse(bag, ts, args.lap_metres, args.window, args.stall_below)
@@ -98,8 +104,8 @@ def main() -> int:
             ok = False
             continue
         print(f"{label:26s} {st['duration']:6.0f} {st['laps']:7.2f} {st['distance']:8.0f} "
-              f"{st['stopped_pct']:6.1f} {st['stall_events']:7d} {st['longest_stall_s']:7.1f}s "
-              f"{st['mean_v']:7.2f}")
+              f"{st['stopped_pct']:6.1f} {st['stall_events']:7d} {st['total_stalled_s']:9.0f}s "
+              f"{st['longest_stall_s']:7.1f}s {st['mean_v']:7.2f}")
     return 0 if ok else 1
 
 
