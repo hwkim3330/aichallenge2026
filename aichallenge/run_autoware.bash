@@ -30,6 +30,14 @@ esac
 [[ -n "${MPC_CONFIG_FILE:-}" ]] && opts+=("mpc_config_file:=${MPC_CONFIG_FILE}")
 [[ -n "${MPC_REF_VEL_FILE:-}" ]] && opts+=("mpc_ref_vel_file:=${MPC_REF_VEL_FILE}")
 [[ -n "${USE_OBSTACLE_AVOIDANCE:-}" ]] && opts+=("use_obstacle_avoidance:=${USE_OBSTACLE_AVOIDANCE}")
+# lidar_guard thresholds. Needed to separate the guard's effect from the CPU cost of
+# CPU-rendered LiDAR: the launch file says to A/B the guard by turning the simulator's
+# LiDAR on or off, but that changes both at once, and solo6lidar.sh separately warns
+# that LiDAR is not free on this 16-core box. Setting the limits to 0 leaves LiDAR on
+# and makes the guard inert, which isolates it.
+[[ -n "${GUARD_FRONT_LIMIT:-}" ]] && opts+=("guard_front_limit:=${GUARD_FRONT_LIMIT}")
+[[ -n "${GUARD_SIDE_LIMIT:-}" ]] && opts+=("guard_side_limit:=${GUARD_SIDE_LIMIT}")
+[[ -n "${GUARD_SPEED:-}" ]] && opts+=("guard_speed:=${GUARD_SPEED}")
 
 export ROS_DOMAIN_ID=$id
 

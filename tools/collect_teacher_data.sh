@@ -149,6 +149,19 @@ log "stopping recorder cleanly (SIGINT, so the mcap is closed and readable)"
 docker compose exec -T autoware bash -lc 'pkill -INT -f "ros2 bag record"' >/dev/null 2>&1 || true
 sleep 8
 
+# Preserve this run's score. AWSIM writes it to aichallenge/result-summary.json and
+# the next run overwrites it, which is why the 2026-07-31 npc-with/npc-without races
+# left no scores behind and had to be reconstructed from their bags.
+if [[ -s $SUMMARY ]]; then
+    now_mtime=$(stat -c %Y "$SUMMARY" 2>/dev/null || echo 0)
+    if (( now_mtime > BASE_MTIME )); then
+        cp -f "$SUMMARY" "$HOST_LOG_DIR/result-summary.json"
+        log "saved result-summary.json to $HOST_LOG_DIR"
+    else
+        log "no new result-summary.json (race did not finish)"
+    fi
+fi
+
 BAGS=$ROOT/aichallenge/ml_workspace/rawdata
 log "bags now in $BAGS:"
 ls -1t "$BAGS" 2>/dev/null | head -5
