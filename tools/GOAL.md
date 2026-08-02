@@ -249,8 +249,44 @@ NPC 는 랩당 약 **149 s** 로 돈다(보드 기록). 480 s 창에서:
 거리에 있지도 않으며, 접촉 후 증상을 완화할 뿐이다.
 
 **따라서 남은 유일한 실질적 방향은 라이다에서 얻은 장애물을 플래너의 경로 제약으로 넣는 것**
-이다(브레이크가 아니라 조향을 만드는 것). 이것은 파라미터가 아니라 기능이다. 탈출 기동
-튜닝과 가드 임계값 튜닝은 여기서 종료한다.
+이다(브레이크가 아니라 조향을 만드는 것). 탈출 기동 튜닝과 가드 임계값 튜닝은 여기서 종료한다.
+
+### ★★ 2026-08-02 — 회피 기능은 지금까지 한 번도 작동한 적이 없다 ★★
+
+그 방향을 설계하려고 배선을 따라가 보니, 새로 만들 것이 거의 없고 대신 **빠진 층이 두 개**다.
+
+| 층 | 상태 |
+|---|---|
+| `config.yaml`: `use_path_constraints_topic: true`, `use_border_cells_topic: true` | 켜져 있음 |
+| MPC 가 `/path_constraints_provider/{path_constraints,border_cells}` 구독 | 구독함 |
+| **`path_constraints_provider` 노드 실행** | **어디서도 launch 되지 않음** |
+| 그 노드가 필요로 하는 `/aichallenge/objects` 발행 | **실시간 발행자 없음** |
+| 정적 대체 `obstacles.csv_path` | `""` (빈 문자열) |
+| launch 의 `use_obstacle_avoidance` 기본값 | `false` |
+
+실행 노드 목록(arm A, 17 개)에 `path_constraints_provider` 가 없다. `run_mpc_controller.bash`
+는 MPC 만 exec 한다. `/aichallenge/objects` 를 다루는 파일 3 개는 전부 구독자이거나 bag 파서다
+(`object_marker.py` 시각화, `obstacle_parser.py` bag→CSV, provider 자신). AWSIM 도 발행하지
+않는다(Player.log 의 MultiDomain 발행 목록에 없음).
+
+**즉 장애물 집합이 영구히 비어 있다.** 그리고 이것이 기록을 다시 읽게 만든다 —
+"회피 ON 이 OFF 와 솔로 성능 동일(46.87/47.31/47.35)이라 성능 손해 없음, 새 기본값으로 채택"
+은 **플래그를 켜도 아무것도 바뀌지 않았기 때문**이다. 손해가 없던 게 아니라 기능이 없었다.
+`use_obstacle_avoidance` 는 launch 기본값이 `false` 이기도 하다.
+
+**그래서 할 일은 "회피 기능 개발"이 아니라 배선 복구 + 소스 하나 추가다:**
+
+1. `path_constraints_provider` 를 launch 에 넣는다(이미 launch 파일이 패키지에 있다:
+   `multi_purpose_mpc_ros/launch/path_constraints_provider.launch.py`).
+2. `/aichallenge/objects` 를 발행하는 노드를 만든다. 계약은 `Float64MultiArray`, stride 4,
+   `data[i], data[i+1]` 이 map 좌표 x, y (provider 의 `_obstacles_callback` 참조). 반경은
+   provider 가 `obstacles.radius=1.25` 로 붙인다.
+3. 그 노드의 입력은 `/sensing/lidar/scan` — NPC 를 보는 유일한 센서다. 벽·콘과 NPC 를 가르는
+   방법이 본체이고, 기준 경로 corridor 안쪽에 들어온 반사만 남기는 것이 1 차 후보다.
+
+**검증 주의**: 1 번만 해도 정적 CSV 없이 provider 가 빈 장애물로 제약을 발행하므로, MPC 동작이
+바뀔 수 있다. 1 번과 2 번을 따로 측정할 것. 그리고 npc1 조건의 측정 비용(위 참조)을 감안해
+효과가 큰 것만 이 조건에서 재고, 작은 것은 솔로에서 잴 것.
 
 **주의**: `publishCommand` 의 인자 순서는 `(speed, acceleration, steering)` 이다.
 `(-2.0F, 1.0, ...)` 는 음수 목표속도 + 양수 가속으로 바로 위 주석과 일치한다 —
