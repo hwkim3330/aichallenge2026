@@ -260,6 +260,48 @@ def parse_laps(log_path: pathlib.Path):
     return laps, recov
 
 
+def race_outcome(log_path: pathlib.Path, timeout_s: float = 480.0) -> dict:
+    """Score completion from when the race ended, not from lap messages.
+
+    The MPC's "Lap N completed!" line for the FINAL lap races the orchestrator's shutdown
+    and usually loses. Measured over five solo6/solo6lidar runs on 2026-08-02: the gap
+    from lap 5 to the orchestrator's "latest link updated" was 46.0 s every time -- one
+    lap -- races ended at 277.5-280.0 s against a 480 s timeout, and yet only one of the
+    five logged its sixth lap, in the same second as the finalize. All five had finished.
+
+    That is a coin flip landing on fitness()'s FIRST key, where finishing outranks any
+    amount of pace, so a genuine six-lap finish was being ranked below a slower one that
+    happened to get its last message out. Every completion figure in evolve_log.jsonl
+    predates this and should be read with it in mind.
+
+    Ending well inside the timeout is what proves the laps were run, and the elapsed time
+    is then the six-lap total exactly -- better than summing messages.
+    """
+    laps, recov = parse_laps(log_path)
+    if not laps:
+        return dict(laps=[], recoveries=recov, completed=0, elapsed=None, finished=False)
+    text = log_path.read_text(errors="replace")
+    fin = re.findall(r"\[(\d+)\.\d+\].*latest link updated", text)
+    lap_ts = [float(m) for m in re.findall(r"\[(\d+)\.\d+\].*Lap \d+ completed", text)]
+    completed, elapsed = len(laps), None
+    if fin:
+        elapsed = float(fin[0]) - (lap_ts[0] - laps[0])
+        gap = float(fin[0]) - lap_ts[-1]
+        typical = sorted(laps)[len(laps) // 2]
+        if 0.6 * typical < gap < 1.4 * typical:
+            completed += 1
+    finished = completed >= 6 and elapsed is not None and elapsed < timeout_s - 20
+    return dict(laps=laps, recoveries=recov, completed=completed, elapsed=elapsed,
+                finished=finished)
+
+
+def scored_total(outcome):
+    """Six-lap total for fitness. Prefers the measured race length over summed messages."""
+    if outcome["finished"] and outcome["elapsed"]:
+        return outcome["elapsed"]
+    return total_6(outcome["laps"])
+
+
 def total_6(laps):
     """6-lap total, the scored quantity. Missing laps are charged at the worst lap seen.
 
@@ -325,13 +367,11 @@ def run_race(tag, genomes, slots):
 
     results = []
     for g, slot in zip(genomes, slots):
-        laps, recov = parse_laps(host_out / f"d{slot}" / "autoware.log")
-        results.append(dict(label=g["_label"], slot=slot, laps=laps,
-                            recoveries=recov, control=g["_control"]))
+        o = race_outcome(host_out / f"d{slot}" / "autoware.log", timeout_s=600.0)
+        results.append(dict(label=g["_label"], slot=slot, control=g["_control"], **o))
     best = min((L for r in results for L in r["laps"]), default=None)
     for r in results:
         r["clean_median"] = clean_median(r["laps"], best) if best else None
-        r["finished"] = len(r["laps"]) >= 6
     return results
 
 
@@ -371,10 +411,9 @@ def run_screen(tag, genomes, slots):
 
     out_rows = []
     for g, slot in zip(genomes, slots):
-        laps, recov = parse_laps(host_out / f"d{slot}" / "autoware.log")
-        out_rows.append(dict(label=g["_label"], slot=slot, laps=laps,
-                             recoveries=recov, control=g["_control"],
-                             finished=len(laps) >= 6, total6=total_6(laps)))
+        o = race_outcome(host_out / f"d{slot}" / "autoware.log", timeout_s=480.0)
+        out_rows.append(dict(label=g["_label"], slot=slot, control=g["_control"],
+                             total6=scored_total(o), **o))
     return out_rows
 
 
