@@ -98,7 +98,22 @@ def one_run(tag: str, cfg: str) -> dict:
                                       log.read_text(errors="replace"))) if log.exists() else 0)
 
 
-def verdict(peaks: list[float], label: str) -> None:
+def verdict(peaks: list[float], label: str, laps: list[float] | None = None,
+            stalls: int = 0) -> None:
+    """Lap times first, corner peaks second.
+
+    wp_id_offset=3 is why this is not a one-number screen: it cut every corner peak
+    (0.46-1.89 against a 1.048 median and 4.126 max) while running 87.9 s and 104.3 s laps
+    with five stalls per run. The band got tidier and the car got much worse, because the
+    failure moved somewhere the band does not watch. A candidate has to clear lap time
+    before its excursion figures mean anything.
+    """
+    if laps:
+        steady = sorted(laps[1:]) or laps
+        med = statistics.median(steady)
+        flag = "  REJECT (laps regressed)" if med > 50.0 else ""
+        print(f"{label}: laps median={med:.2f} worst={max(laps):.2f} "
+              f"stalls={stalls}{flag}")
     if not peaks:
         print(f"{label}: no laps")
         return
@@ -124,17 +139,21 @@ def main() -> int:
     print(f"{args.name}: {edits} -> {cfg}", flush=True)
 
     peaks: list[float] = []
+    all_laps: list[float] = []
+    all_stalls = 0
     for i in range(args.runs):
         tag = f"corner-{args.name}-{i:02d}"
         print(f"[{time.strftime('%H:%M:%S')}] {tag}", flush=True)
         row = one_run(tag, cfg)
         peaks += row["peaks"]
+        all_laps += row["laps"]
+        all_stalls += row["stalls"]
         with OUT.open("a") as f:
             f.write(json.dumps(row) + "\n")
         print(f"  laps={[round(x, 2) for x in row['laps']]} completed={row['completed']} "
               f"stalls={row['stalls']} peaks={[round(p, 2) for p in row['peaks']]}",
               flush=True)
-    verdict(peaks, args.name)
+    verdict(peaks, args.name, laps=all_laps, stalls=all_stalls)
     return 0
 
 

@@ -649,12 +649,16 @@ class MPCController(Node):
                  + (f"first exceeded the 1.94 m infeasibility bound {len(rows) - crossed} "
                     f"ticks before the stall" if crossed is not None
                     else "NEVER exceeded 1.94 m, so QP infeasibility is not the cause"))
-        # Every 20th tick over the last 15 s, then every tick over the last second.
-        for i in range(max(0, len(rows) - 600), len(rows) - 40, 20):
+        # Coarse over the approach, then fine over the five seconds that matter. The
+        # first dumps sampled every 0.5 s right up to the crash, which is too coarse to
+        # tell genuine steering chatter from aliasing -- the readings alternated sign
+        # every sample (+0.019, -0.088, +0.045, -0.083) and that is exactly what a smooth
+        # signal looks like when undersampled.
+        for i in range(max(0, len(rows) - 600), max(0, len(rows) - 200), 20):
             wp, ey, epsi, vv, u0, u1 = rows[i]
             log.warn(f"  t-{(len(rows) - i) / 40.0:5.2f}s wp={wp:3d} e_y={ey:+.3f} "
                      f"e_psi={epsi:+.3f} v={vv:+.3f} cmd_v={u0:.2f} steer={u1:+.3f}")
-        for i in range(max(0, len(rows) - 40), len(rows)):
+        for i in range(max(0, len(rows) - 200), len(rows), 4):
             wp, ey, epsi, vv, u0, u1 = rows[i]
             log.warn(f"  t-{(len(rows) - i) / 40.0:5.2f}s wp={wp:3d} e_y={ey:+.3f} "
                      f"e_psi={epsi:+.3f} v={vv:+.3f} cmd_v={u0:.2f} steer={u1:+.3f}")
