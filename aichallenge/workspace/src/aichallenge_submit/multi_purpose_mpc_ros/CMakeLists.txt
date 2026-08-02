@@ -34,10 +34,12 @@ install(PROGRAMS
   scripts/run_reference_path_visualizer.bash
   scripts/run_reference_velocity_configulator.bash
   scripts/path_constraints_provider.bash
+  scripts/lidar_obstacle_publisher.bash
   scripts/mpc_controller
   scripts/mpc_simulation
   scripts/obstacle_parser.py
   scripts/path_constraints_provider
+  scripts/lidar_obstacle_publisher
   scripts/publish_initialpose
   scripts/publish_initialpose_gnss
   scripts/reference_path_visualizer
