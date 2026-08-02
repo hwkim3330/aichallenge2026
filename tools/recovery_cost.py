@@ -73,7 +73,7 @@ for name, log, bag in runs:
         c = costs(log, bag)
     except Exception as exc:
         print(f"{name:24s} FAILED {type(exc).__name__}: {exc}"); continue
-    allc.setdefault(name.split()[0] + " " + name.split()[1], []).extend(c)
+    allc.setdefault(name.strip(), []).extend(c)
     print(f"{name:24s} n={len(c):2d}  " + (", ".join(f"{x:.1f}s" for x in c) if c else "(no events)"))
 print()
 for k, v in allc.items():

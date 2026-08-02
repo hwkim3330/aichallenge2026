@@ -112,6 +112,10 @@ class MPC:
         # closes at all.
         self.funnel_rate = float(_env("MPC_FUNNEL_RATE", "0.15"))
 
+        # Lateral error past which corridor segment selection is seeded from the
+        # reference waypoint rather than the car. 0 disables the fallback.
+        self.recovery_e_y = float(_env("MPC_RECOVERY_E_Y", "1.0"))
+
         # 既存の初期化
         self.current_prediction = None
         self.debug_funnel = 0.0
@@ -243,9 +247,22 @@ class MPC:
 
         # Update path constraints
         if self.use_obstacle_avoidance and not self.use_path_constraints_topic:
+            # `pose` seeds which free segment of the corridor gets picked at the head of
+            # the horizon (reference_path.py:973); everything downstream follows that
+            # choice. Seeding it with the car's real position is right while driving, but
+            # once the car is wedged against a wall it selects the pocket the car is stuck
+            # in rather than the track, and the plan stays there. Passing None seeds from
+            # the waypoint instead, i.e. the way back to the line.
+            #
+            # Measured 2026-08-02, per-event recovery: 9.9 s median with constraints off,
+            # 23.5 s with them computed from the real pose. Threshold is in metres of
+            # lateral error; the corridor half-width is about 1.7 m.
+            off_line = abs(float(self.model.spatial_state.e_y)) > self.recovery_e_y
+            seed_pose = None if off_line else [
+                self.model.temporal_state.x, self.model.temporal_state.y,
+                self.model.temporal_state.psi]
             ub, lb, _ = self.model.reference_path.update_path_constraints(
-                self.model.wp_id + 1,
-                [self.model.temporal_state.x, self.model.temporal_state.y, self.model.temporal_state.psi],
+                self.model.wp_id + 1, seed_pose,
                 N, self.model.length, self.model.width, safety_margin)
         else:
             ref_wp_id = (self.model.wp_id + 1) % len(self.model.reference_path.path_constraints[0])
