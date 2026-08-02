@@ -260,35 +260,42 @@ class PathConstraintsProvider(Node):
 
         pose = None
 
+        # Recompute only when the obstacle set changed, then republish the cached
+        # arrays. The original recomputed update_path_constraints for all ~350
+        # waypoints on every cycle regardless, which is pure waste whenever the
+        # obstacles are unchanged -- and with no publisher on /aichallenge/objects
+        # they are unchanged always. Measured 2026-08-02: switching this node on cost
+        # solo6lidar 46.45/46.56 s average -> 64.56 s, with the best lap unchanged at
+        # 45.86, i.e. intermittent disturbance rather than wrong constraints.
+        needs_recompute = True
         rate = self.create_rate(0.5)
         while rclpy.ok():
-            self._path_constraints.upper_bounds = []
-            self._path_constraints.lower_bounds = []
-            border_cells.dynamic_upper_bounds = []
-            border_cells.dynamic_lower_bounds = []
-            for wp_id in range(self._reference_path.n_waypoints-1):
+            if self._obstacles_updated:
+                self._obstacles_updated = False
+                self._map.reset_map()
+                self._map.add_obstacles(self._obstacles)
+                self._reference_path.reset_dynamic_constraints()
+                needs_recompute = True
 
-                if self._obstacles_updated:
-                    self._obstacles_updated = False
-                    self._map.reset_map()
-                    self._map.add_obstacles(self._obstacles)
-                    self._reference_path.reset_dynamic_constraints()
+            if needs_recompute:
+                needs_recompute = False
+                self._path_constraints.upper_bounds = []
+                self._path_constraints.lower_bounds = []
+                border_cells.dynamic_upper_bounds = []
+                border_cells.dynamic_lower_bounds = []
+                for wp_id in range(self._reference_path.n_waypoints-1):
+                    ub_hor, lb_hor, border_cells_hor_sm = self._car.reference_path.update_path_constraints(
+                        wp_id + 1, pose, self._mpc_cfg.N,
+                        self._car.length, self._car.width, self._car.safety_margin
+                    )
+                    ub_pw, lb_pw = np.array(border_cells_hor_sm[1])
+                    pose = (np.array(ub_pw) + np.array(lb_pw)) / 2.
 
-                ub_hor, lb_hor, border_cells_hor_sm = self._car.reference_path.update_path_constraints(
-                    wp_id + 1, pose, self._mpc_cfg.N,
-                    self._car.length, self._car.width, self._car.safety_margin
-                )
-                ub_pw, lb_pw = np.array(border_cells_hor_sm[1])
-                pose = (np.array(ub_pw) + np.array(lb_pw)) / 2.
+                    self._path_constraints.upper_bounds.extend(ub_hor)
+                    self._path_constraints.lower_bounds.extend(lb_hor)
+                    border_cells.dynamic_upper_bounds.extend(border_cells_hor_sm[:,0].reshape(-1))
+                    border_cells.dynamic_lower_bounds.extend(border_cells_hor_sm[:,1].reshape(-1))
 
-                self._path_constraints.upper_bounds.extend(ub_hor)
-                self._path_constraints.lower_bounds.extend(lb_hor)
-                # if wp_id == 0:
-                #     print("-------------")
-                #     print(border_cells_hor_sm[:,0])
-                #     print("-------------")
-                border_cells.dynamic_upper_bounds.extend(border_cells_hor_sm[:,0].reshape(-1))
-                border_cells.dynamic_lower_bounds.extend(border_cells_hor_sm[:,1].reshape(-1))
             self._path_constraints_pub.publish(self._path_constraints)
             self._border_cells_pub.publish(border_cells)
             rate.sleep()
