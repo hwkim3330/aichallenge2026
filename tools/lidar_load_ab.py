@@ -26,12 +26,37 @@ import sys
 import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from evolve import ROOT, compose, env_for, parse_laps, sweep  # noqa: E402
+from evolve import ROOT, compose, env_for, parse_laps  # noqa: E402
 
 OUT = ROOT / "tools/lidar_load_ab.jsonl"
 SLOT = 1
 # solo6*.sh time out at 480 s; allow for AWSIM start-up and container teardown on top.
 WALL = 620
+
+
+def sweep() -> None:
+    """Remove every container this harness may have started, and wait until they are gone.
+
+    Not evolve.py's sweep: that one filters on the name `evolve-`, and the containers here
+    are named `lidarab-`. Reusing it left run 00's AWSIM alive into run 01 -- two
+    simulators on one ROS domain -- which is what produced a 0-lap, 79-recovery result
+    that looked like a lidar effect and was not.
+
+    Killing the `docker compose run` client does not stop the container it started, so
+    this is the only thing that actually ends a run.
+    """
+    import subprocess
+    for _ in range(12):
+        subprocess.run(
+            "docker ps -aq --filter name=lidarab- | xargs -r docker rm -f; "
+            "docker ps -aq --filter name=aichallenge2026-simulator | xargs -r docker rm -f",
+            shell=True, capture_output=True)
+        left = subprocess.run("docker ps -aq --filter name=lidarab-", shell=True,
+                              capture_output=True, text=True).stdout.strip()
+        if not left:
+            return
+        time.sleep(5)
+    raise RuntimeError("containers from a previous run would not die; refusing to measure")
 
 
 def one_run(tag: str, sim_mode: str) -> dict:
@@ -101,7 +126,7 @@ def main() -> int:
     rows = [json.loads(l) for l in OUT.read_text().splitlines()] if OUT.exists() else []
     for r in range(args.rounds):
         for mode in ("solo6", "solo6lidar"):
-            tag = f"lidarab-{mode}-{len(rows):02d}"
+            tag = f"{mode}-{len(rows):02d}"
             print(f"[{time.strftime('%H:%M:%S')}] {tag}", flush=True)
             row = one_run(tag, mode)
             rows.append(row)
