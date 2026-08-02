@@ -296,10 +296,20 @@ def race_outcome(log_path: pathlib.Path, timeout_s: float = 480.0) -> dict:
 
 
 def scored_total(outcome):
-    """Six-lap total for fitness. Prefers the measured race length over summed messages."""
+    """Six-lap total for fitness.
+
+    Summed laps when all six were logged, elapsed only to fill in for a lap the log never
+    reported. Elapsed carries the orchestrator's finalize latency -- a few tenths that
+    vary run to run -- and preferring it everywhere put that noise straight into the
+    comparison between near-identical candidates. In generation 1 it was enough to swap
+    two candidates that sat 0.8 s apart, which is a coin flip dressed as a result.
+    """
+    laps = outcome["laps"]
+    if len(laps) >= 6:
+        return total_6(laps)
     if outcome["finished"] and outcome["elapsed"]:
         return outcome["elapsed"]
-    return total_6(outcome["laps"])
+    return total_6(laps)
 
 
 def total_6(laps):
