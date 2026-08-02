@@ -138,6 +138,7 @@ class AWSIMEnvNode(Node):
         self.vehicle_status_gear_status: GearReport = None
         self.vehicle_status_steering_status: SteeringReport = None
         self.vehicle_status_velocity_status: VelocityReport = None
+        self._last_control_time = None  # for .speed setpoint integration below
         self.localization_kinematic_state: Odometry = None
         self.localization_acceleration: AccelWithCovarianceStamped = None
         self.localization_biased_pose: PoseStamped = None
@@ -675,6 +676,26 @@ class AWSIMEnvNode(Node):
     # Publish / Service
     # ============================================================
 
+    def _integrate_target_speed(self, acceleration: float) -> float:
+        """AckermannControlCommand.longitudinal.speed is the setpoint AWSIM's
+        vehicle bridge actually tracks; .acceleration alone never moves the
+        vehicle (confirmed empirically this session across pilot_net_controller,
+        tiny_lidar_net_controller, and this RL env). Integrate a target speed
+        from the real last-known velocity + this step's commanded acceleration.
+        """
+        now = self.get_clock().now()
+        if self._last_control_time is not None:
+            dt = (now - self._last_control_time).nanoseconds / 1e9
+        else:
+            dt = 0.1
+        self._last_control_time = now
+        dt = max(0.0, min(dt, 0.5))
+
+        last_velocity = 0.0
+        if self.vehicle_status_velocity_status is not None:
+            last_velocity = self.vehicle_status_velocity_status.longitudinal_velocity
+        return max(0.0, last_velocity + float(acceleration) * dt)
+
     def publish_control(self, steering: float, acceleration: float):
         """/awsim/control_cmd に AckermannControlCommand を publish する。"""
         cmd = AckermannControlCommand()
@@ -682,6 +703,7 @@ class AWSIMEnvNode(Node):
         cmd.stamp                              = now
         cmd.longitudinal.stamp                 = now
         cmd.lateral.stamp                      = now
+        cmd.longitudinal.speed                 = self._integrate_target_speed(acceleration)
         cmd.longitudinal.acceleration          = float(acceleration)
         cmd.lateral.steering_tire_angle        = float(steering)
         cmd.lateral.steering_tire_rotation_rate = 1.0
@@ -695,6 +717,7 @@ class AWSIMEnvNode(Node):
         cmd.stamp = now
         cmd.longitudinal.stamp = now
         cmd.lateral.stamp = now
+        cmd.longitudinal.speed = self._integrate_target_speed(acceleration)
         cmd.longitudinal.acceleration = float(acceleration)
         cmd.lateral.steering_tire_angle = float(steering)
         cmd.lateral.steering_tire_rotation_rate = 1.0

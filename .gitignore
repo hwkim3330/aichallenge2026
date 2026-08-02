@@ -25,3 +25,8 @@ doc/tmp/*
 
 docs/plan/
 result-*.json
+
+# Rival telemetry bags (51 MB of other teams' mcap, re-downloadable) and the
+# byte-identical weights backup left by the 2026-08-02 BC experiment.
+aichallenge/rivalbags/
+aichallenge/workspace/src/aichallenge_submit/tiny_lidar_net_controller/ckpt/*.bak_pre_bc20260802.npy

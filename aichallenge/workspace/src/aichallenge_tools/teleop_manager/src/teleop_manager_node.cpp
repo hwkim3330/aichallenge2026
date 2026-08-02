@@ -98,6 +98,9 @@ TeleopManagerNode::TeleopManagerNode()
   status_sub_ = create_subscription<std_msgs::msg::Float32MultiArray>(
     "/admin/awsim/status", 10, std::bind(&TeleopManagerNode::status_callback, this, _1));
 
+  velocity_sub_ = create_subscription<autoware_auto_vehicle_msgs::msg::VelocityReport>(
+    "/vehicle/status/velocity_status", 10, std::bind(&TeleopManagerNode::velocity_callback, this, _1));
+
   drive_pub_   = create_publisher<autoware_auto_control_msgs::msg::AckermannControlCommand>("/control/command/control_cmd", 10);
   gear_pub_    = create_publisher<autoware_auto_vehicle_msgs::msg::GearCommand>("/control/command/gear_cmd", 10);
   trigger_pub_ = create_publisher<std_msgs::msg::Bool>("/rosbag2_recorder/trigger", 10);
@@ -131,6 +134,11 @@ void TeleopManagerNode::status_callback(const std_msgs::msg::Float32MultiArray::
   if (msg->data.size() >= 2) {
     current_lap_ = msg->data[1];
   }
+}
+
+void TeleopManagerNode::velocity_callback(const autoware_auto_vehicle_msgs::msg::VelocityReport::SharedPtr msg)
+{
+  current_velocity_ = msg->longitudinal_velocity;
 }
 
 void TeleopManagerNode::publish_gear(uint8_t command)
@@ -287,9 +295,19 @@ void TeleopManagerNode::timer_callback()
     ack_active_ = false;
   }
 
+  const double dt = have_last_control_time_
+    ? std::max((current_time - last_control_time_).seconds(), 0.0)
+    : 1.0 / timer_hz_;
+  last_control_time_ = current_time;
+  have_last_control_time_ = true;
+
   if (joy_active_) {
     // joy_speed_ と joy_steer_ は joy_callback でスケール適用済みの値
+    // AWSIM's bridge tracks .speed (not .acceleration) as the actual target,
+    // so integrate a target speed from the commanded acceleration here (same
+    // fix as pilot_net/tiny_lidar_net_controller_node.py).
     out.longitudinal.acceleration = joy_speed_;
+    out.longitudinal.speed = current_velocity_ + joy_speed_ * dt;
     out.lateral.steering_tire_angle = joy_steer_;
     out.lateral.steering_tire_rotation_rate = 1.0;
   } else if (ack_active_) {
@@ -298,6 +316,7 @@ void TeleopManagerNode::timer_callback()
   } else {
     // Stop
     out.longitudinal.acceleration = 0.0;
+    out.longitudinal.speed = 0.0;
     out.lateral.steering_tire_angle = 0.0;
     out.lateral.steering_tire_rotation_rate = 0.0;
   }
@@ -305,8 +324,6 @@ void TeleopManagerNode::timer_callback()
   out.stamp = current_time;
   out.longitudinal.stamp = current_time;
   out.lateral.stamp = current_time;
-
-  out.longitudinal.speed = current_lap_;
 
   drive_pub_->publish(out);
 }

@@ -8,6 +8,7 @@
 #include "sensor_msgs/msg/joy.hpp"
 #include "autoware_auto_control_msgs/msg/ackermann_control_command.hpp"
 #include "autoware_auto_vehicle_msgs/msg/gear_command.hpp"
+#include "autoware_auto_vehicle_msgs/msg/velocity_report.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "std_msgs/msg/empty.hpp"
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
@@ -27,12 +28,14 @@ private:
   void status_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg);
   void joy_callback(const sensor_msgs::msg::Joy::SharedPtr msg);
   void ack_callback(const autoware_auto_control_msgs::msg::AckermannControlCommand::SharedPtr msg);
+  void velocity_callback(const autoware_auto_vehicle_msgs::msg::VelocityReport::SharedPtr msg);
   void timer_callback();
 
   // --- Member Variables ---
   rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr           joy_sub_;
   rclcpp::Subscription<autoware_auto_control_msgs::msg::AckermannControlCommand>::SharedPtr ack_sub_;
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr status_sub_;
+  rclcpp::Subscription<autoware_auto_vehicle_msgs::msg::VelocityReport>::SharedPtr velocity_sub_;
   rclcpp::Publisher<autoware_auto_control_msgs::msg::AckermannControlCommand>::SharedPtr drive_pub_;
   rclcpp::Publisher<autoware_auto_vehicle_msgs::msg::GearCommand>::SharedPtr gear_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr                trigger_pub_;
@@ -61,9 +64,12 @@ private:
   bool joy_active_, ack_active_;
   double joy_speed_, joy_steer_;
   float current_lap_;
+  double current_velocity_{0.0};
   autoware_auto_control_msgs::msg::AckermannControlCommand last_autonomy_msg_;
   bool ack_received_{false};
   rclcpp::Time last_joy_msg_time_;
+  rclcpp::Time last_control_time_;
+  bool have_last_control_time_{false};
 
   // Debounce flags
   bool prev_start_pressed_, prev_stop_pressed_;

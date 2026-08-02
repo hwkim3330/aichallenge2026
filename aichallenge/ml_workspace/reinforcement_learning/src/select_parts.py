@@ -7,6 +7,7 @@ import yaml
 from action.default_action_adapter import DefaultAWSIMActionAdapter
 from context.context_manager import AWSIMContextManager
 from observation.default_observation import ImageSpeedObservationBuilder
+from observation.lidar_observation import LidarSpeedObservationBuilder
 from reward.default_reward import DefaultAWSIMReward
 from termination.default_termination import CollisionTermination
 from termination.interfaces import TerminationFunction
@@ -117,6 +118,8 @@ def select_observation_builder(observation_cfg: dict) -> ImageSpeedObservationBu
     name = str(observation_cfg.get("name", "default_image_speed_observation_builder")).lower()
     if name == "default_image_speed_observation_builder":
         return ImageSpeedObservationBuilder()
+    if name == "lidar_speed_observation_builder":
+        return LidarSpeedObservationBuilder()
     raise ValueError(f"Unknown observation builder name: {name}")
 
 

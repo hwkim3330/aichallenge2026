@@ -54,8 +54,7 @@ extract_map:
   sensing_lidar_scan:
     range_min: lidar_min_range_m
     range_max: lidar_max_range_m
-    ranges:
-      __len__: lidar_range_count
+    ranges: lidar_ranges
 
   vehicle_status_gear_status:
     report: gear_position
