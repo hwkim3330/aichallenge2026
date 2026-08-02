@@ -7,3 +7,11 @@
 {"tag": "corner-ctrl035-00", "config": "config_ctrl035.yaml", "peaks": [], "laps": [], "completed": 0, "finished": false, "stalls": 0}
 {"tag": "corner-ctrl035-01", "config": "config_ctrl035.yaml", "peaks": [0.775, 1.33, 0.908, 1.274, 1.415], "laps": [47.220882415771484, 46.21066665649414, 46.065635681152344, 46.16565704345703, 46.205665588378906], "completed": 6, "finished": true, "stalls": 0}
 {"tag": "corner-ctrl035-02", "config": "config_ctrl035.yaml", "peaks": [0.798, 1.88, 0.471, 1.005, 1.547], "laps": [47.43092727661133, 46.24067306518555, 45.98061752319336, 46.215667724609375, 46.215667724609375], "completed": 6, "finished": true, "stalls": 0}
+{"tag": "corner-s6slow-00", "config": "config_s6slow.yaml", "peaks": [0.519, 0.542, 0.699, 0.674, 0.554], "laps": [48.03105545043945, 46.88581085205078, 46.59574890136719, 46.76078414916992, 47.26089096069336], "completed": 6, "finished": true, "stalls": 0}
+{"tag": "corner-s6slow-01", "config": "config_s6slow.yaml", "peaks": [0.613, 0.525, 0.516, 0.594, 0.741], "laps": [48.21109390258789, 47.19087600708008, 46.900814056396484, 46.74578094482422, 64.41923522949219], "completed": 6, "finished": true, "stalls": 1}
+{"tag": "corner-s6slow-02", "config": "config_s6slow.yaml", "peaks": [0.514, 0.459, 0.691, 0.697, 0.457], "laps": [48.126075744628906, 47.3109016418457, 46.72577667236328, 46.86080551147461, 46.625755310058594], "completed": 6, "finished": true, "stalls": 0}
+{"tag": "corner-s6slow-00", "config": "config_s6slow.yaml", "peaks": [], "laps": [], "completed": 0, "finished": false, "stalls": 0}
+{"tag": "corner-s6slow-01", "config": "config_s6slow.yaml", "peaks": [], "laps": [], "completed": 0, "finished": false, "stalls": 0}
+{"tag": "corner-s6slow-02", "config": "config_s6slow.yaml", "peaks": [], "laps": [], "completed": 0, "finished": false, "stalls": 0}
+{"tag": "corner-s6slow-03", "config": "config_s6slow.yaml", "peaks": [0.664, 0.679, 0.555, 0.689, 0.45], "laps": [48.306114196777344, 47.05584716796875, 46.66576385498047, 46.72577667236328, 66.85289764404297], "completed": 5, "finished": false, "stalls": 2}
+{"tag": "corner-s6slow-04", "config": "config_s6slow.yaml", "peaks": [0.686, 0.577, 0.57, 0.511, 0.718], "laps": [48.101070404052734, 64.3542709350586, 46.86080551147461, 46.80579376220703, 46.56074142456055], "completed": 6, "finished": true, "stalls": 1}

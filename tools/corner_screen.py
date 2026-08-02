@@ -117,7 +117,7 @@ def one_run(tag: str, cfg: str, ref: str = "ref_vel.yaml") -> dict:
 
 
 def verdict(peaks: list[float], label: str, laps: list[float] | None = None,
-            stalls: int = 0) -> None:
+            stalls: int = 0, runs: int = 0) -> None:
     """Lap times first, corner peaks second.
 
     wp_id_offset=3 is why this is not a one-number screen: it cut every corner peak
@@ -129,9 +129,17 @@ def verdict(peaks: list[float], label: str, laps: list[float] | None = None,
     if laps:
         steady = sorted(laps[1:]) or laps
         med = statistics.median(steady)
-        flag = "  REJECT (laps regressed)" if med > 50.0 else ""
+        # Stall rate belongs in the verdict, not just lap median. s6=18.0 kept a 46.89 s
+        # median -- passing any lap-time test -- while producing four stalls in five runs
+        # against the control's zero in two. Completion is the scored quantity.
+        reasons = []
+        if med > 50.0:
+            reasons.append("laps regressed")
+        if runs and stalls / runs > 0.5:
+            reasons.append(f"stall rate {stalls}/{runs} runs")
+        flag = f"  REJECT ({'; '.join(reasons)})" if reasons else ""
         print(f"{label}: laps median={med:.2f} worst={max(laps):.2f} "
-              f"stalls={stalls}{flag}")
+              f"stalls={stalls} runs={runs}{flag}")
     if not peaks:
         print(f"{label}: no laps")
         return
@@ -153,6 +161,8 @@ def main() -> int:
     ap.add_argument("--set-ref", metavar="SECTION=VALUE",
                     help="ref_vel.yaml section speed to override, e.g. s6=18.0")
     ap.add_argument("--runs", type=int, default=3)
+    ap.add_argument("--batch", default="a",
+                    help="suffix so a rerun does not collide with a previous batch's output dirs")
     args = ap.parse_args()
 
     edits = dict(kv.split("=", 1) for kv in args.set)
@@ -166,19 +176,21 @@ def main() -> int:
     peaks: list[float] = []
     all_laps: list[float] = []
     all_stalls = 0
+    valid_runs = 0
     for i in range(args.runs):
-        tag = f"corner-{args.name}-{i:02d}"
+        tag = f"corner-{args.name}{args.batch}-{i:02d}"
         print(f"[{time.strftime('%H:%M:%S')}] {tag}", flush=True)
         row = one_run(tag, cfg, ref)
         peaks += row["peaks"]
         all_laps += row["laps"]
         all_stalls += row["stalls"]
+        valid_runs += bool(row["laps"])   # empty runs are start-up failures, not samples
         with OUT.open("a") as f:
             f.write(json.dumps(row) + "\n")
         print(f"  laps={[round(x, 2) for x in row['laps']]} completed={row['completed']} "
               f"stalls={row['stalls']} peaks={[round(p, 2) for p in row['peaks']]}",
               flush=True)
-    verdict(peaks, args.name, laps=all_laps, stalls=all_stalls)
+    verdict(peaks, args.name, laps=all_laps, stalls=all_stalls, runs=valid_runs)
     return 0
 
 

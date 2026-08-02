@@ -187,6 +187,11 @@ class MPCController(Node):
         # single lap. Four dumps put the car 2.9-4.4 m off line here against a corridor
         # that runs to 3.0, so this number moving is what a fix looks like.
         self._corner_peak = 0.0
+        # Whole-lap peak as well as the band. s6=18.0 moved an excursion to wp 133-134
+        # (2.793 m) where the band metric could not see it, so the band alone under-reports
+        # mode A. Carrying the location makes a new hotspot visible the first time it happens.
+        self._lap_peak = 0.0
+        self._lap_peak_wp = -1
         self._enable_control = True
         self._initialize()
         self._setup_parameters_callback()
@@ -739,8 +744,10 @@ class MPCController(Node):
         if laps > self._current_laps:
             self.get_logger().info(f'\033[32mLap {self._current_laps} completed! Lap time: {self._last_lap_time} s\033[0m')
             self.get_logger().info(
-                f"corner peak |e_y| wp275-300: {self._corner_peak:.3f} m")
+                f"corner peak |e_y| wp275-300: {self._corner_peak:.3f} m; "
+                f"lap peak |e_y|: {self._lap_peak:.3f} m at wp={self._lap_peak_wp}")
             self._corner_peak = 0.0
+            self._lap_peak, self._lap_peak_wp = 0.0, -1
             self._lap_times[self._current_laps] = self._last_lap_time
             self._current_laps = laps
 
@@ -984,6 +991,9 @@ class MPCController(Node):
         # at or above 1.0 m/s the whole time. A car that will not move while being asked
         # to is a different failure from the QP-starved one the breaker documents, and it
         # is the one that actually cost that run 21 s.
+        _ey = abs(float(self._mpc.model.spatial_state.e_y))
+        if _ey > self._lap_peak:
+            self._lap_peak, self._lap_peak_wp = _ey, self._mpc.model.wp_id
         if 275 <= self._mpc.model.wp_id <= 300:
             self._corner_peak = max(
                 self._corner_peak, abs(float(self._mpc.model.spatial_state.e_y)))
