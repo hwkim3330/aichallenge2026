@@ -1,5 +1,65 @@
 # 제출물
 
+작성: 2026-08-02 (이전 판 2026-07-29 는 아래에 그대로 둠)
+
+## 현재 제출 파일
+
+`submit/aichallenge_submit.tar.gz` — 2026-08-02 재생성
+아카이브: `submit/archive/20260802-111000_ticks40_rate015_avoidoff.tar.gz`
+직전본: `submit/archive/20260731-001300_prev_ticks20_rate025.tar.gz`
+
+### 왜 재생성했나
+
+7/31 판에는 funnel + deadlock breaker 코드는 들어 있었지만 기본값이 **TICKS 20 / FUNNEL_RATE
+0.25** 였다. 8/2 측정에서 그 둘이 **지는 값**임이 확인됐다(`tools/GOAL.md`):
+
+- `MPC_ANTIDEADLOCK_TICKS`: 20 → **40**. 480 초 완주율이 20 에서 7/12, 40·70 에서 9/12.
+- `MPC_FUNNEL_RATE`: 0.25 → **0.15**. 0.25 와 0.08 을 모두 이긴다.
+
+funnel + antideadlock 자체의 효과(12 레이스): base 32 랩 / 4-of-12 완주 → **68 랩 / 9-of-12**.
+
+### 확정 설정 (tarball 안에서 직접 읽어 확인)
+
+| 항목 | 값 |
+|---|---|
+| `MPC_ANTIDEADLOCK_TICKS` | 40 |
+| `MPC_FUNNEL_RATE` | 0.15 |
+| `use_obstacle_avoidance` | false |
+| `use_path_constraints_provider` | false |
+| 경로 | `env/final_ver3/traj_top36_blend45.csv` (336.1 m) |
+| 속도 | 10 구간 22.0~30.0 km/h |
+| `a_max` / `a_min` | 1.35 / −1.6 |
+| `delta_max_deg` | 36.0 |
+
+### 검증 — 실제 평가 하네스
+
+`docker_build.sh eval --submit submit/aichallenge_submit.tar.gz` 로 이미지를 굽고 `make eval`:
+
+```
+6/6 완주
+47.67 / 46.26 / 46.12 / 46.23 / 45.98 / 45.98
+평균 46.37  최고 45.98  총 278.23 s
+stuck 0  yield 0  process died 0
+```
+
+dev 경로 솔로 기준선(46.45 / 46.56)과 일치한다. 결과 원본: `submit/eval_verified_20260802.json`.
+
+**이 검증이 dev 테스트와 다른 점**: `make eval` 은 소스 트리가 아니라 **제출 tarball 에서 구운
+이미지**를 돌린다. 과거에 "낮 제출 기록 75-89 초 vs 로컬 46-48 초" 사고가 있었고 실험 중 config
+가 제출됐을 가능성이 의심됐다. tarball 내용 직접 확인 → 그 tarball 로 이미지 빌드 → 하네스 실행
+세 단계를 모두 거치면 그 경로가 막힌다.
+
+### 회피(추월)는 왜 아직 off 인가
+
+8/2 측정: 회피를 켜면 실행당 1-2 랩이 무너진다. 이벤트당 복구 시간이 기준선 중앙값 9.9 s 대비
+provider 경유 48.4 s, 자체 계산 23.5 s 다. 원인은 좁혀졌으나(GOAL.md 참조) 아직 기준선 수준이
+아니다. 다만 NPC 는 랩당 149 s 라 **추종만으로는 480 s 에 3.2 랩**이 한계이므로, 6 랩에는
+추월이 필수다 — 이 작업은 계속된다.
+
+---
+
+# 제출물
+
 작성: 2026-07-29
 
 ## 제출 파일
