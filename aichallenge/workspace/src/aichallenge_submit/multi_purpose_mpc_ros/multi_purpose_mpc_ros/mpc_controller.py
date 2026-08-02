@@ -173,6 +173,14 @@ class MPCController(Node):
         self._approach = deque(maxlen=1200)
         self._approach_dumped = False
         self._stopped_ticks = 0
+        # The car sits stationary on the grid through the countdown, which trips a
+        # bare |v| < 0.15 trigger before the race starts -- both dumps from the first
+        # instrumented batch were that, at wp=29 with e_psi -2.348 rad, and each consumed
+        # the run's single dump so a real stall later would have found nothing left.
+        # Arm only once the car has actually driven, and re-arm on every recovery of
+        # speed so each separate stall reports.
+        self._has_moved = False
+        self._dumps_left = 5
         self._enable_control = True
         self._initialize()
         self._setup_parameters_callback()
@@ -618,9 +626,10 @@ class MPCController(Node):
         has ever recorded whether that is what actually happens, or how e_y got that large.
         This answers both from the ring buffer.
         """
-        if self._approach_dumped or not self._approach:
+        if self._approach_dumped or self._dumps_left <= 0 or not self._approach:
             return
         self._approach_dumped = True
+        self._dumps_left -= 1
         rows = list(self._approach)
         worst = max(rows, key=lambda r: abs(r[1]))
         crossed = next((i for i, r in enumerate(rows) if abs(r[1]) > 1.94), None)
@@ -962,11 +971,14 @@ class MPCController(Node):
         # at or above 1.0 m/s the whole time. A car that will not move while being asked
         # to is a different failure from the QP-starved one the breaker documents, and it
         # is the one that actually cost that run 21 s.
+        if abs(v) > 2.0:
+            self._has_moved = True
+            self._approach_dumped = False   # next stall gets its own dump
         if abs(v) < 0.15:
             self._stopped_ticks += 1
         else:
             self._stopped_ticks = 0
-        if self._stopped_ticks == self._antideadlock_ticks:
+        if self._stopped_ticks == self._antideadlock_ticks and self._has_moved:
             self._dump_approach()
 
         # Deadlock breaker.
