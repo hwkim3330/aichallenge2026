@@ -178,6 +178,23 @@
       <arg name="output_control_cmd" value="/control/command/mpc_cmd"/>
     </include>
 
+    <!-- The node that turns obstacles into the path constraints the MPC subscribes
+         to. Nothing launched it before 2026-08-02, and nothing publishes
+         /aichallenge/objects either, so the obstacle set was permanently empty and
+         use_obstacle_avoidance changed nothing at all. That is why enabling it once
+         measured as "identical to off, no performance cost". Gated on the same flag
+         rather than a new one, so that flag finally means something.
+
+         It rebuilds its own Map, ReferencePath, car and MPC and republishes
+         constraints for every waypoint at 0.5 Hz, so it is not cheap, and a 2 s
+         update is coarse for a moving obstacle. Note it hardcodes config.yaml and
+         ignores mpc_config_file, so a per-vehicle MPC config will not reach it. -->
+    <group if="$(var use_obstacle_avoidance)">
+      <include file="$(find-pkg-share multi_purpose_mpc_ros)/launch/path_constraints_provider.launch.py">
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+      </include>
+    </group>
+
     <!-- LiDAR safety layer, between the MPC and the recovery node.
          Measured 2026-07-30: with one Autoware car and one AWSIM NPC on track,
          /v2x/vehicle_positions carried ZERO messages in 12 s while

@@ -35,6 +35,9 @@ from multi_purpose_mpc_ros_msgs.msg import PathConstraints, BorderCells
 
 @dataclasses.dataclass
 class MPCConfig:
+    # Must stay field-for-field identical to mpc_controller.py's MPCConfig. This is a
+    # separate dataclass, not a shared import, and it had frozen six fields behind
+    # while nothing launched this node -- so the drift was invisible.
     N: int
     Q: dia_matrix
     R: dia_matrix
@@ -44,7 +47,13 @@ class MPCConfig:
     a_max: float
     ay_max: float
     delta_max: float
+    steer_rate_max: float
     control_rate: float
+    steering_tire_angle_gain_var: float
+    accel_low_pass_gain: float
+    steer_low_pass_gain: float
+    wp_id_offset: int
+    use_max_kappa_pred: bool
 
 
 class PathConstraintsProvider(Node):
@@ -170,6 +179,9 @@ class PathConstraintsProvider(Node):
 
         def create_mpc(car: BicycleModel) -> Tuple[MPCConfig, MPC]:
             cfg_mpc = self._cfg.mpc # type: ignore
+            # Field-for-field the same as mpc_controller.py's construction. This call
+            # had drifted six arguments behind MPCConfig while the node was
+            # unreachable from any launch file, so the divergence went unnoticed.
             mpc_cfg = MPCConfig(
                 cfg_mpc.N,
                 sparse.diags(cfg_mpc.Q),
@@ -180,7 +192,13 @@ class PathConstraintsProvider(Node):
                 cfg_mpc.a_max,
                 cfg_mpc.ay_max,
                 np.deg2rad(cfg_mpc.delta_max_deg),
-                cfg_mpc.control_rate)
+                cfg_mpc.steer_rate_max,
+                cfg_mpc.control_rate,
+                cfg_mpc.steering_tire_angle_gain_var,
+                cfg_mpc.accel_low_pass_gain,
+                cfg_mpc.steer_low_pass_gain,
+                cfg_mpc.wp_id_offset,
+                cfg_mpc.use_max_kappa_pred)
 
             state_constraints = {
                 "xmin": np.array([-np.inf, -np.inf, -np.inf]),
@@ -188,6 +206,12 @@ class PathConstraintsProvider(Node):
             input_constraints = {
                 "umin": np.array([0.0, -np.tan(mpc_cfg.delta_max) / car.length]),
                 "umax": np.array([mpc_cfg.v_max, np.tan(mpc_cfg.delta_max) / car.length])}
+            # Mirror mpc_controller.py's construction exactly. This call had drifted
+            # out of date and raised TypeError on startup -- the node had been
+            # unreachable from any launch file, so nobody saw it break. Its `True,
+            # True` was landing in max_steering_rate and wp_id_offset, and the two
+            # flags the signature actually ends with were missing.
+            scaled_steer_rate_max = mpc_cfg.steer_rate_max / mpc_cfg.steering_tire_angle_gain_var
             mpc = MPC(
                 car,
                 mpc_cfg.N,
@@ -197,8 +221,11 @@ class PathConstraintsProvider(Node):
                 state_constraints,
                 input_constraints,
                 mpc_cfg.ay_max,
-                True,
-                True)
+                scaled_steer_rate_max,
+                mpc_cfg.wp_id_offset,
+                True,   # use_obstacle_avoidance: this node exists to serve it
+                self._cfg.reference_path.use_path_constraints_topic,
+                mpc_cfg.use_max_kappa_pred)
             return mpc_cfg, mpc
 
         def compute_speed_profile(car: BicycleModel, mpc_config: MPCConfig) -> None:
