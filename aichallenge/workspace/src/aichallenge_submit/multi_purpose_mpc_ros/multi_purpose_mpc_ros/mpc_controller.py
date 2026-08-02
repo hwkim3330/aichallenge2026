@@ -181,6 +181,12 @@ class MPCController(Node):
         # speed so each separate stall reports.
         self._has_moved = False
         self._dumps_left = 5
+        # Peak lateral error through the band where every stall has begun, reported once
+        # per lap. The stalls themselves happen in about one run in six, which is far too
+        # rare to screen a fix against; the excursion that precedes them is measured every
+        # single lap. Four dumps put the car 2.9-4.4 m off line here against a corridor
+        # that runs to 3.0, so this number moving is what a fix looks like.
+        self._corner_peak = 0.0
         self._enable_control = True
         self._initialize()
         self._setup_parameters_callback()
@@ -728,6 +734,9 @@ class MPCController(Node):
 
         if laps > self._current_laps:
             self.get_logger().info(f'\033[32mLap {self._current_laps} completed! Lap time: {self._last_lap_time} s\033[0m')
+            self.get_logger().info(
+                f"corner peak |e_y| wp275-300: {self._corner_peak:.3f} m")
+            self._corner_peak = 0.0
             self._lap_times[self._current_laps] = self._last_lap_time
             self._current_laps = laps
 
@@ -971,6 +980,9 @@ class MPCController(Node):
         # at or above 1.0 m/s the whole time. A car that will not move while being asked
         # to is a different failure from the QP-starved one the breaker documents, and it
         # is the one that actually cost that run 21 s.
+        if 275 <= self._mpc.model.wp_id <= 300:
+            self._corner_peak = max(
+                self._corner_peak, abs(float(self._mpc.model.spatial_state.e_y)))
         if abs(v) > 2.0:
             self._has_moved = True
             self._approach_dumped = False   # next stall gets its own dump
