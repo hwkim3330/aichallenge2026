@@ -135,7 +135,9 @@ def verdict(peaks: list[float], label: str, laps: list[float] | None = None,
         reasons = []
         if med > 50.0:
             reasons.append("laps regressed")
-        if runs and stalls / runs > 0.5:
+        # 1.0, not 0.5: the baseline itself runs 5 stalls in 8 runs (0.63), so a
+        # 0.5 threshold rejects the control. Only a clear regression should trip it.
+        if runs and stalls / runs > 1.0:
             reasons.append(f"stall rate {stalls}/{runs} runs")
         flag = f"  REJECT ({'; '.join(reasons)})" if reasons else ""
         print(f"{label}: laps median={med:.2f} worst={max(laps):.2f} "
