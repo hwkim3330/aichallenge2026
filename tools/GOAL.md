@@ -900,3 +900,37 @@ antideadlock 은 **솔로 페이스를 깎지 않고** 완주율을 산다 — �
 라이다도 카메라도 꺼져 있으므로 다른 차를 볼 수 있는 유일한 채널은 v2x 다. GOAL.md 에 이미
 "NPC 는 v2x 에 안 나온다" 는 측정이 있지만, **다른 차량(vehicles 3)이 v2x 에 나오는지는 별개
 문제이고 측정한 적이 없다.** 이것이 다음 확인 대상이다.
+
+
+## 2026-08-02 (정정) — 권위는 셸 스크립트가 아니라 RaceConfig yaml 이다
+
+위 항목은 `simulator_scripts/*.sh` 만 보고 썼다. 권위 있는 것은
+`aichallenge/simulator/AWSIM/AWSIM_Data/StreamingAssets/RaceConfig/eval-{1,2,3,4}p.yaml`
+이고, 두 가지가 다르다.
+
+| | 셸 스크립트 | **eval-3p.yaml (공식)** |
+|---|---|---|
+| `npcs` | 0 | **0** — 일치 |
+| `lidar` | off | **on** — 반대 |
+| `collisions` | on | **off** — 반대 |
+| `handicap` | off | on |
+| `timeout` / `laps` / `start-mode` | 600 / 6 / sync | 600 / 6 / sync |
+
+**결론은 유지되지만 이유가 바뀐다.** 라이다 장애물 검출이 무의미한 것은 센서가 꺼져서가
+아니라(공식 설정에선 켜져 있다) **피할 대상이 없어서**다: `npcs: 0` 이고 `collisions: off` 라
+다른 두 대는 서로를 통과한다. `tools/evolve.py` 의 docstring 이 이미 같은 말을 하고 있었다 —
+"With collisions off the cars pass through each other and each is effectively a solo run,
+which is what the official 3-vehicle config does as well".
+
+따라서:
+
+* 재시험 금지 항목은 유지: 라이다 기반 장애물 검출. 단 사유는 "충돌이 꺼져 있어 회피 대상이
+  없음".
+* 같은 이유로 **v2x 회피도 무의미하다.** `USE_OBSTACLE_AVOIDANCE` 에서 v2x 추적을 떼어내
+  항상 켜는 변경을 만들었다가 되돌렸다. 검증된 제출물에 이득 없는 복잡도를 남기지 않는다.
+* 위 항목의 "3 대가 물리적으로 같은 트랙에 있으니 접촉 deadlock 이 위험" 이라는 서술은
+  **틀렸다**. 충돌이 꺼져 있다.
+
+**공식 배틀 조건 확정**: 3 대, NPC 0, 충돌 off, handicap on, 라이다 on, 6 랩, 600 s, sync 출발.
+사실상 솔로 주행이다. 남는 것은 **완주 우선, 그다음 페이스** — `evolve.py` 가 이미
+lexicographic 으로 최적화하고 있는 바로 그것이다. 회피/인식이 아니라 이 축으로 돌아간다.
