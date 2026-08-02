@@ -284,8 +284,14 @@ class PathConstraintsProvider(Node):
                 border_cells.dynamic_upper_bounds = []
                 border_cells.dynamic_lower_bounds = []
                 for wp_id in range(self._reference_path.n_waypoints-1):
+                    # wp_id, not wp_id + 1. Both builders span get_waypoint(wp_id + n)
+                    # for n in 0..N-1, and MPC.py reads row (model.wp_id + 1) expecting
+                    # that row to be the horizon starting at that same index -- which is
+                    # what update_simple_path_constraints produces. Passing wp_id + 1 here
+                    # put every row one waypoint (0.6 m at the configured resolution) ahead
+                    # of what the consumer assumes.
                     ub_hor, lb_hor, border_cells_hor_sm = self._car.reference_path.update_path_constraints(
-                        wp_id + 1, pose, self._mpc_cfg.N,
+                        wp_id, pose, self._mpc_cfg.N,
                         self._car.length, self._car.width, self._car.safety_margin
                     )
                     ub_pw, lb_pw = np.array(border_cells_hor_sm[1])
