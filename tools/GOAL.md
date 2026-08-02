@@ -855,3 +855,48 @@ antideadlock 은 **솔로 페이스를 깎지 않고** 완주율을 산다 — �
   (mcap 은 스키마 내장이라 우연히 동작). IDL 을 `tiny_lidar_net/msgdefs/` 에 넣고 등록한다.
   (2) 출력 디렉토리 이름이 bag 의 basename 뿐이라, 세 bag 이 모두 `bag` 이므로 **서로 덮어써서
   3 개 중 1 개분만 남았다.** 그래도 "성공" 으로 보고됐다.
+
+
+## 2026-08-02 — 라이다 장애물 검출 전면 철회: 점수 시나리오에 NPC도 라이다도 없다
+
+`aichallenge/simulator_scripts/` 를 나란히 읽고 나서야 전제가 틀렸다는 것을 알았다.
+
+| | eval.sh | online3.sh | parallel.sh | npc1.sh |
+|---|---|---|---|---|
+| 역할 | 공식 평가 | 3 대 배틀 | 3 대 배틀 | **로컬 개발용** |
+| `--npcs` | **0** | **0** | **0** | 1 |
+| `--lidar` | **off** | **off** | **off** | cpu |
+| `--vehicles` | 1 | 3 | 3 | 1 |
+| `--handicap` | off | **on** | **on** | off |
+| `--collisions` | on | on | off | on |
+| `--timeout` | 600 | 600 | 600 | 480 |
+| `--start-mode` | sync | sync | sync | count |
+
+**점수가 나는 어떤 시나리오에도 NPC 가 없고, 라이다가 전부 꺼져 있다.** 경쟁 상대는 NPC 가 아니라
+다른 두 제출물이다(`--vehicles 3`). `npc1.sh` 는 개발용이다.
+
+따라서:
+
+* **`lidar_obstacle_publisher.py` 는 배틀에서 실행될 수 없다.** 라이다가 꺼져 있으니
+  `/sensing/lidar/scan` 이 없다. 노드는 남기되 런치 체인에 넣지 않는다(이미 안 넣었다).
+* 노드 docstring 의 "NPC 가 149 s 에 한 바퀴이므로 480 s 를 따라가면 3.2 랩" 계산은 npc1.sh 에서
+  나온 것으로, **점수와 무관하다**.
+* 오늘 회피 비용 측면에서 얻은 것(48.4 s → 16.3 s/이벤트)은 유효하지만, 회피가 켜질 이유가
+  사라졌다. `USE_OBSTACLE_AVOIDANCE` 는 기본 off 로 둔다.
+* 대조군을 찾다가 발견한 `solo6lidar.sh`(0 NPC + lidar cpu) 도 이제 쓸 데가 없다.
+
+**재시험 금지에 추가**: 라이다 기반 장애물 검출 일체. 점수 시나리오에 센서가 없다.
+
+### 대신 봐야 할 것 — 배틀과 eval 의 실제 차이
+
+검증된 6/6(278.23 s, avg 46.37, recovery 0) 은 `eval.sh` 조건이다. 배틀은 세 가지가 다르다:
+
+1. **`--vehicles 3`** — 다른 두 대가 물리적으로 같은 트랙에 있다. `online3.sh` 는
+   `--collisions on`. 스타트가 `sync` 라 세 대가 동시에 출발한다. Track 1 목표가
+   "deadlock 0" 인데, 실제 deadlock 위험은 벽이 아니라 **다른 차와의 접촉**이다.
+2. **`--handicap on`** — eval 과 npc1 은 둘 다 off 였다. 무엇을 하는지 확인한 적이 없다.
+3. **`--timeout 600`** — 480 이 아니다. 278 s 짜리 주행에는 여유가 크다.
+
+라이다도 카메라도 꺼져 있으므로 다른 차를 볼 수 있는 유일한 채널은 v2x 다. GOAL.md 에 이미
+"NPC 는 v2x 에 안 나온다" 는 측정이 있지만, **다른 차량(vehicles 3)이 v2x 에 나오는지는 별개
+문제이고 측정한 적이 없다.** 이것이 다음 확인 대상이다.
