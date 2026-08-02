@@ -31,7 +31,7 @@ import sys
 import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from evolve import (BASE_CFG, CFG_DIR, ROOT, compose, env_for,  # noqa: E402
+from evolve import (BASE_CFG, BASE_REF, CFG_DIR, ROOT, compose, env_for,  # noqa: E402
                     link_installed, race_outcome)
 from lidar_load_ab import WALL, sweep  # noqa: E402
 
@@ -58,6 +58,24 @@ def write_variant(name: str, edits: dict[str, str]) -> str:
     return name
 
 
+def write_ref_variant(name: str, section: str, value: str) -> str:
+    """Change one section's ref_vel, leaving the rest of the profile alone.
+
+    ref_vel.yaml's header rules out raising per-section speeds for pace -- that failed three
+    times, coarse and fine, with and without braking lead-ins. This is the opposite trade:
+    LOWERING one section to buy stability, paying pace for it. Completion dominates the
+    scoring, so that direction is worth its own test.
+    """
+    text = BASE_REF.read_text()
+    pattern = rf"(^  {re.escape(section)}:\n    ref_vel: )[\d.]+"
+    text, n = re.subn(pattern, lambda m: f"{m.group(1)}{value}", text, count=1, flags=re.M)
+    if n != 1:
+        raise RuntimeError(f"{section}: matched {n} times in ref_vel.yaml, expected 1")
+    (CFG_DIR / name).write_text(text)
+    link_installed(name)
+    return name
+
+
 def peaks_from(log: pathlib.Path) -> list[float]:
     if not log.exists():
         return []
@@ -65,17 +83,17 @@ def peaks_from(log: pathlib.Path) -> list[float]:
         r"corner peak \|e_y\| wp275-300: ([\d.]+)", log.read_text(errors="replace"))]
 
 
-def one_run(tag: str, cfg: str) -> dict:
+def one_run(tag: str, cfg: str, ref: str = "ref_vel.yaml") -> dict:
     out = f"/output/{tag}"
     host_out = ROOT / "output" / tag
     sweep()
-    env0 = dict(env_for(SLOT, cfg, "ref_vel.yaml", out))
+    env0 = dict(env_for(SLOT, cfg, ref, out))
     env0.update(ROS_DOMAIN_ID="0", SIM_MODE="solo6lidar", LOG_DIR=out)
     procs = [compose(["run", "--rm", "-T", "--name", f"lidarab-sim-{tag}",
                       "simulator"], env0, wait=False)]
     time.sleep(8)
     procs.append(compose(["run", "--rm", "-T", "--name", f"lidarab-{tag}",
-                          "autoware"], env_for(SLOT, cfg, "ref_vel.yaml", out),
+                          "autoware"], env_for(SLOT, cfg, ref, out),
                          wait=False))
     log = host_out / f"d{SLOT}" / "autoware.log"
     deadline = time.time() + WALL
@@ -128,15 +146,22 @@ def verdict(peaks: list[float], label: str, laps: list[float] | None = None,
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--set", action="append", required=True, metavar="KEY=VALUE",
+    ap.add_argument("--set", action="append", default=["steer_rate_max=0.35"],
+                    metavar="KEY=VALUE",
                     help="config.yaml scalar to override, e.g. wp_id_offset=3")
     ap.add_argument("--name", required=True, help="short label for this candidate")
+    ap.add_argument("--set-ref", metavar="SECTION=VALUE",
+                    help="ref_vel.yaml section speed to override, e.g. s6=18.0")
     ap.add_argument("--runs", type=int, default=3)
     args = ap.parse_args()
 
     edits = dict(kv.split("=", 1) for kv in args.set)
     cfg = write_variant(f"config_{args.name}.yaml", edits)
-    print(f"{args.name}: {edits} -> {cfg}", flush=True)
+    ref = "ref_vel.yaml"
+    if args.set_ref:
+        sec, val = args.set_ref.split("=", 1)
+        ref = write_ref_variant(f"ref_vel_{args.name}.yaml", sec, val)
+    print(f"{args.name}: {edits} ref[{args.set_ref or '-'}] -> {cfg} / {ref}", flush=True)
 
     peaks: list[float] = []
     all_laps: list[float] = []
@@ -144,7 +169,7 @@ def main() -> int:
     for i in range(args.runs):
         tag = f"corner-{args.name}-{i:02d}"
         print(f"[{time.strftime('%H:%M:%S')}] {tag}", flush=True)
-        row = one_run(tag, cfg)
+        row = one_run(tag, cfg, ref)
         peaks += row["peaks"]
         all_laps += row["laps"]
         all_stalls += row["stalls"]
