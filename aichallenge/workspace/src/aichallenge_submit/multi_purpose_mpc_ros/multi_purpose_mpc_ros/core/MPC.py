@@ -124,10 +124,12 @@ class MPC:
         self.current_control = np.zeros((self.nu*self.N))
         self.optimizer = osqp.OSQP()
 
-        if not self.use_obstacle_avoidance:
-            self.model.reference_path.update_simple_path_constraints(
-                N,
-                self.model.safety_margin)
+        # Built unconditionally now, not only when avoidance is off. With avoidance on
+        # this array is the fallback used whenever there is no obstacle to avoid -- see
+        # _init_problem. It costs one pass at startup and nothing afterwards.
+        self.model.reference_path.update_simple_path_constraints(
+            N,
+            self.model.safety_margin)
 
     def update_v_max(self, v_max: float):
         self.input_constraints['umax'][0] = v_max
@@ -246,7 +248,14 @@ class MPC:
             self.model.reference_path.get_waypoint(self.model.wp_id).kappa)
 
         # Update path constraints
-        if self.use_obstacle_avoidance and not self.use_path_constraints_topic:
+        # Pose-aware constraints cost real lap time: per-event recovery runs 24 s median
+        # against 9.9 s with them off (tools/GOAL.md 2026-08-02). But they are only
+        # needed when there is something to avoid, and there is usually nothing -- one
+        # NPC on the whole track. So pay for them only while an obstacle is registered;
+        # otherwise fall through to the static path-anchored array, which is exactly
+        # what the avoidance-off baseline uses.
+        obstacles_present = bool(getattr(self.model.reference_path.map, "obstacles", []))
+        if self.use_obstacle_avoidance and not self.use_path_constraints_topic and obstacles_present:
             # `pose` seeds which free segment of the corridor gets picked at the head of
             # the horizon (reference_path.py:973); everything downstream follows that
             # choice. Seeding it with the car's real position is right while driving, but
