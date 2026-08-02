@@ -644,22 +644,32 @@ class MPCController(Node):
         rows = list(self._approach)
         worst = max(rows, key=lambda r: abs(r[1]))
         crossed = next((i for i, r in enumerate(rows) if abs(r[1]) > 1.94), None)
+        last_fast = next((i for i in range(len(rows) - 1, -1, -1) if abs(rows[i][3]) > 2.0), None)
         log = self.get_logger()
         cmd = rows[-1][4]
         log.warn(f"STALL ANATOMY: {len(rows)} ticks recorded, stopped at wp={rows[-1][0]} "
                  f"with cmd_v={cmd:.2f} m/s "
-                 + ("(commanded to move and did not -- physically blocked, not QP-starved)"
-                    if cmd >= 1.0 else "(commanded near zero -- consistent with an infeasible QP)")
+                 + ("(MPC still asking for speed -- NOT proof the car is blocked, since "
+                    "stuck_recovery_controller sits between here and the vehicle and drops "
+                    "this command whenever it is recovering)"
+                    if cmd >= 1.0 else "(MPC itself commanding zero -- an infeasible QP)")
                  + f"; max |e_y|={abs(worst[1]):.3f} m at wp={worst[0]}, "
                  + (f"first exceeded the 1.94 m infeasibility bound {len(rows) - crossed} "
                     f"ticks before the stall" if crossed is not None
                     else "NEVER exceeded 1.94 m, so QP infeasibility is not the cause"))
+        if last_fast is not None:
+            w, ey, ep, vv, u0, _ = rows[last_fast]
+            log.warn(f"  last above 2 m/s: t-{(len(rows) - last_fast) / 40.0:.2f}s "
+                     f"wp={w} e_y={ey:+.3f} e_psi={ep:+.3f} v={vv:+.3f} cmd_v={u0:.2f} "
+                     f"-- the stop begins here")
+        else:
+            log.warn("  never above 2 m/s in the buffer: the stop began before it")
         # Coarse over the approach, then fine over the five seconds that matter. The
         # first dumps sampled every 0.5 s right up to the crash, which is too coarse to
         # tell genuine steering chatter from aliasing -- the readings alternated sign
         # every sample (+0.019, -0.088, +0.045, -0.083) and that is exactly what a smooth
         # signal looks like when undersampled.
-        for i in range(max(0, len(rows) - 600), max(0, len(rows) - 200), 20):
+        for i in range(0, max(0, len(rows) - 200), 40):
             wp, ey, epsi, vv, u0, u1 = rows[i]
             log.warn(f"  t-{(len(rows) - i) / 40.0:5.2f}s wp={wp:3d} e_y={ey:+.3f} "
                      f"e_psi={epsi:+.3f} v={vv:+.3f} cmd_v={u0:.2f} steer={u1:+.3f}")
