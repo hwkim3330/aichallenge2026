@@ -27,6 +27,11 @@
        several vehicles with different MPC tuning (set MPC_CONFIG_FILE per
        container). Empty keeps the track default. -->
   <arg name="mpc_config_file" default=""/>
+  <!-- The provider is only needed when the MPC is told to take constraints from a
+       topic. With reference_path.use_path_constraints_topic false the MPC computes
+       them itself each cycle from its ACTUAL pose (MPC.py:245), which needs no
+       provider, no 2 s staleness and no synthetic pose. Default off. -->
+  <arg name="use_path_constraints_provider" default="false"/>
   <arg name="guard_front_limit" default="1.25"/>
   <arg name="guard_side_limit" default="0.72"/>
   <arg name="guard_speed" default="5.5"/>
@@ -189,7 +194,7 @@
          constraints for every waypoint at 0.5 Hz, so it is not cheap, and a 2 s
          update is coarse for a moving obstacle. Note it hardcodes config.yaml and
          ignores mpc_config_file, so a per-vehicle MPC config will not reach it. -->
-    <group if="$(var use_obstacle_avoidance)">
+    <group if="$(var use_path_constraints_provider)">
       <include file="$(find-pkg-share multi_purpose_mpc_ros)/launch/path_constraints_provider.launch.py">
         <arg name="use_sim_time" value="$(var use_sim_time)"/>
       </include>

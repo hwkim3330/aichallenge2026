@@ -50,8 +50,12 @@ reference_path:
   smoothing_distance: 2  # tested 5 -> much worse (76.59s vs ~50s baseline), reverted
   max_width: 3.0  # testing: narrower corridor to see if it forces tighter tracking through wp82-88/129-134
   circular: true
-  use_path_constraints_topic: true  # re-enabled for overtaking per user request: self-play showed no performance cost (46.87/47.31/47.35s, identical to avoidance-off)
-  use_border_cells_topic: true
+  # false: the MPC computes constraints itself each cycle from its real pose. true routes
+  # them through path_constraints_provider, which costs one ruined lap per run and makes
+  # recovery 5x slower (tools/GOAL.md 2026-08-02). The old note here claimed enabling
+  # avoidance was free; it was, because nothing was actually running.
+  use_path_constraints_topic: false
+  use_border_cells_topic: false
   # use_path_constraints_topic: true
   # use_border_cells_topic: true
 
