@@ -3,6 +3,7 @@
 import yaml
 from typing import List, Tuple, Optional, NamedTuple
 import dataclasses
+from collections import deque
 from scipy import sparse
 from scipy.sparse import dia_matrix
 import numpy as np
@@ -162,6 +163,15 @@ class MPCController(Node):
         # is not better: the fast-escape arm (0.2 s, 3.0 m/s) thrashed with 498 rescues.
         self._antideadlock_ticks = int(_env("MPC_ANTIDEADLOCK_TICKS", "40"))
         self._deadlock_ticks = 0
+        # Ring buffer of the approach into a stall, dumped once when the deadlock breaker
+        # first fires. Eight scored-condition races produced one in-race deadlock, at
+        # waypoint 284, and the log carried nothing to diagnose it with -- no pose, no e_y,
+        # no solver state (tools/GOAL.md, 2026-08-02). Recording rosbags for hours to catch
+        # a 1-in-8 event would put sustained write load on a drive this box has already
+        # crashed from overheating, so keep the evidence in memory and spend it only when
+        # the failure actually happens. 30 s at 40 Hz.
+        self._approach = deque(maxlen=1200)
+        self._approach_dumped = False
         self._enable_control = True
         self._initialize()
         self._setup_parameters_callback()
@@ -599,6 +609,36 @@ class MPCController(Node):
                 self._v2x_callback,
                 1)
 
+    def _dump_approach(self) -> None:
+        """Print how the car got into a stall, once per run.
+
+        The comment above the deadlock breaker names the mechanism -- the QP has no
+        feasible point once |e_y| exceeds max_width - width/sqrt(2) = 1.94 m -- but nothing
+        has ever recorded whether that is what actually happens, or how e_y got that large.
+        This answers both from the ring buffer.
+        """
+        if self._approach_dumped or not self._approach:
+            return
+        self._approach_dumped = True
+        rows = list(self._approach)
+        worst = max(rows, key=lambda r: abs(r[1]))
+        crossed = next((i for i, r in enumerate(rows) if abs(r[1]) > 1.94), None)
+        log = self.get_logger()
+        log.warn(f"STALL ANATOMY: {len(rows)} ticks before the breaker fired, "
+                 f"max |e_y|={abs(worst[1]):.3f} m at wp={worst[0]}, "
+                 + (f"first exceeded the 1.94 m infeasibility bound {len(rows) - crossed} "
+                    f"ticks before the stall" if crossed is not None
+                    else "NEVER exceeded 1.94 m, so QP infeasibility is not the cause"))
+        # Every 20th tick over the last 15 s, then every tick over the last second.
+        for i in range(max(0, len(rows) - 600), len(rows) - 40, 20):
+            wp, ey, epsi, vv, u0, u1 = rows[i]
+            log.warn(f"  t-{(len(rows) - i) / 40.0:5.2f}s wp={wp:3d} e_y={ey:+.3f} "
+                     f"e_psi={epsi:+.3f} v={vv:+.3f} cmd_v={u0:.2f} steer={u1:+.3f}")
+        for i in range(max(0, len(rows) - 40), len(rows)):
+            wp, ey, epsi, vv, u0, u1 = rows[i]
+            log.warn(f"  t-{(len(rows) - i) / 40.0:5.2f}s wp={wp:3d} e_y={ey:+.3f} "
+                     f"e_psi={epsi:+.3f} v={vv:+.3f} cmd_v={u0:.2f} steer={u1:+.3f}")
+
     def _create_ackerman_control_command(self, stamp, u, acc, bug_acc_enabled):
         v_cmd = u[0]
         steer_cmd = u[1]
@@ -903,6 +943,12 @@ class MPCController(Node):
             u = [0.0, 0.0]
             # continue
 
+        # Feed the approach recorder before the deadlock check reads it.
+        self._approach.append((
+            self._mpc.model.wp_id, float(self._mpc.model.spatial_state.e_y),
+            float(self._mpc.model.spatial_state.e_psi), float(v),
+            float(u[0]), float(u[1])))
+
         # Deadlock breaker.
         #
         # stuck_recovery_controller.cpp:127 bails out when
@@ -930,6 +976,7 @@ class MPCController(Node):
                     f"deadlock: commanding {u[0]:.2f} m/s so stuck_recovery can see it "
                     f"(wp={self._mpc.model.wp_id}, v={v:.3f})",
                     throttle_duration_sec=2.0)
+                self._dump_approach()
 
         acc = 0.
         bug_acc_enabled = False

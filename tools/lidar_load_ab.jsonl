@@ -1,0 +1,8 @@
+{"tag": "solo6-00", "sim_mode": "solo6", "laps": [47.65097427368164, 45.96061325073242, 46.545738220214844, 45.930606842041016, 46.23567199707031, 46.205665588378906], "recoveries": 0, "finished": true, "total6": 278.52927017211914}
+{"tag": "solo6lidar-01", "sim_mode": "solo6lidar", "laps": [47.425926208496094, 46.32569122314453, 46.135650634765625, 46.43571472167969, 47.08085250854492], "recoveries": 0, "finished": false, "total6": null}
+{"tag": "solo6-02", "sim_mode": "solo6", "laps": [47.34090805053711, 45.965614318847656, 45.690555572509766, 46.525733947753906, 46.32569122314453], "recoveries": 0, "finished": false, "total6": null}
+{"tag": "solo6lidar-03", "sim_mode": "solo6lidar", "laps": [48.00104904174805, 46.34569549560547, 46.27067947387695, 46.72577667236328, 46.56574249267578], "recoveries": 4, "finished": false, "total6": null}
+{"tag": "solo6-04", "sim_mode": "solo6", "laps": [47.450931549072266, 45.99562072753906, 46.015625, 46.27568054199219, 46.100643157958984], "recoveries": 6, "finished": false, "total6": null}
+{"tag": "solo6lidar-05", "sim_mode": "solo6lidar", "laps": [47.78600311279297, 46.65576171875, 46.0306282043457, 46.09564208984375, 45.97061538696289], "recoveries": 4, "finished": false, "total6": null}
+{"tag": "solo6-06", "sim_mode": "solo6", "laps": [47.36591339111328, 46.1606559753418, 46.385704040527344, 46.29068374633789, 46.1906623840332], "recoveries": 3, "finished": false, "total6": null}
+{"tag": "solo6lidar-07", "sim_mode": "solo6lidar", "laps": [47.52094650268555, 46.42571258544922, 46.11064529418945, 46.14065170288086, 46.08063888549805], "recoveries": 8, "finished": false, "total6": null}
