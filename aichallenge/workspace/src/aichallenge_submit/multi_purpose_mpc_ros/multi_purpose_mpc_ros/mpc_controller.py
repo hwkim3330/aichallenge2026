@@ -172,6 +172,7 @@ class MPCController(Node):
         # the failure actually happens. 30 s at 40 Hz.
         self._approach = deque(maxlen=1200)
         self._approach_dumped = False
+        self._stopped_ticks = 0
         self._enable_control = True
         self._initialize()
         self._setup_parameters_callback()
@@ -624,8 +625,12 @@ class MPCController(Node):
         worst = max(rows, key=lambda r: abs(r[1]))
         crossed = next((i for i, r in enumerate(rows) if abs(r[1]) > 1.94), None)
         log = self.get_logger()
-        log.warn(f"STALL ANATOMY: {len(rows)} ticks before the breaker fired, "
-                 f"max |e_y|={abs(worst[1]):.3f} m at wp={worst[0]}, "
+        cmd = rows[-1][4]
+        log.warn(f"STALL ANATOMY: {len(rows)} ticks recorded, stopped at wp={rows[-1][0]} "
+                 f"with cmd_v={cmd:.2f} m/s "
+                 + ("(commanded to move and did not -- physically blocked, not QP-starved)"
+                    if cmd >= 1.0 else "(commanded near zero -- consistent with an infeasible QP)")
+                 + f"; max |e_y|={abs(worst[1]):.3f} m at wp={worst[0]}, "
                  + (f"first exceeded the 1.94 m infeasibility bound {len(rows) - crossed} "
                     f"ticks before the stall" if crossed is not None
                     else "NEVER exceeded 1.94 m, so QP infeasibility is not the cause"))
@@ -948,6 +953,21 @@ class MPCController(Node):
             self._mpc.model.wp_id, float(self._mpc.model.spatial_state.e_y),
             float(self._mpc.model.spatial_state.e_psi), float(v),
             float(u[0]), float(u[1])))
+
+        # Dump on the car being stopped, whatever the MPC is asking for.
+        #
+        # Hanging this off the deadlock breaker alone missed the events it was built for.
+        # The breaker needs |v| < 0.15 AND u[0] < 1.0 held for 40 ticks; solo6lidar-09 sat
+        # at velocity 0.001 for over ten seconds and never tripped it, so the command was
+        # at or above 1.0 m/s the whole time. A car that will not move while being asked
+        # to is a different failure from the QP-starved one the breaker documents, and it
+        # is the one that actually cost that run 21 s.
+        if abs(v) < 0.15:
+            self._stopped_ticks += 1
+        else:
+            self._stopped_ticks = 0
+        if self._stopped_ticks == self._antideadlock_ticks:
+            self._dump_approach()
 
         # Deadlock breaker.
         #
