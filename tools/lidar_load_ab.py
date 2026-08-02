@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
 import statistics
 import sys
 import time
@@ -62,6 +63,45 @@ def sweep() -> None:
     raise RuntimeError("containers from a previous run would not die; refusing to measure")
 
 
+def race_outcome(log: pathlib.Path, timeout_s: float = 480.0) -> dict:
+    """Decide completion from when the race ended, not from lap messages.
+
+    The MPC's "Lap N completed!" line for the FINAL lap races the orchestrator's
+    shutdown and usually loses. Across three solo6 runs the gap from lap 5 to the
+    orchestrator's "latest link updated" was 46.0 s every time -- exactly one lap -- yet
+    only solo6-00 logged lap 6, and it logged it in the same second as the finalize.
+    All three finished six laps; two were recorded as five.
+
+    This matters beyond one harness: evolve.py's parse_laps counts the same messages and
+    its total_6() charges each missing lap at the worst lap seen, so genuine six-lap
+    finishes have been scored as failures and the parameter search has been reading that
+    penalty as signal.
+
+    The race ending before its timeout is what proves the laps were run, so that is what
+    gets used here.
+    """
+    laps, recov = parse_laps(log)
+    if not laps:
+        return dict(laps=[], recoveries=recov, completed=0, elapsed=None, finished=False)
+    text = log.read_text(errors="replace")
+    fin = re.findall(r"\[(\d+)\.\d+\].*latest link updated", text)
+    lap_ts = [float(m) for m in re.findall(r"\[(\d+)\.\d+\].*Lap \d+ completed", text)]
+    start = lap_ts[0] - laps[0]
+    completed, elapsed = len(laps), None
+    if fin:
+        elapsed = float(fin[0]) - start
+        # A gap of about one lap between the last logged lap and the finalize means the
+        # car ran a lap the log never got to report.
+        gap = float(fin[0]) - lap_ts[-1]
+        typical = statistics.median(laps)
+        if 0.6 * typical < gap < 1.4 * typical:
+            completed += 1
+    # Ending well inside the timeout is only possible by completing the required laps.
+    finished = completed >= 6 and elapsed is not None and elapsed < timeout_s - 20
+    return dict(laps=laps, recoveries=recov, completed=completed, elapsed=elapsed,
+                finished=finished)
+
+
 def one_run(tag: str, sim_mode: str) -> dict:
     out = f"/output/{tag}"
     host_out = ROOT / "output" / tag
@@ -82,8 +122,11 @@ def one_run(tag: str, sim_mode: str) -> dict:
     while time.time() < deadline:
         if procs[0].poll() is not None:
             break
-        laps, _ = parse_laps(log)
-        if len(laps) >= 6:
+        # Stop on the orchestrator's finalize rather than on six lap messages: the last
+        # lap message often never arrives, and idling a finished race past the wall is
+        # what produced phantom "stuck" events on a parked car in the first batch.
+        if log.exists() and "latest link updated" in log.read_text(errors="replace"):
+            time.sleep(5)
             break
         time.sleep(5)
 
@@ -93,9 +136,9 @@ def one_run(tag: str, sim_mode: str) -> dict:
     sweep()
     time.sleep(5)
 
-    laps, recov = parse_laps(log)
-    return dict(tag=tag, sim_mode=sim_mode, laps=laps, recoveries=recov,
-                finished=len(laps) >= 6, total6=sum(laps[:6]) if len(laps) >= 6 else None)
+    o = race_outcome(log)
+    return dict(tag=tag, sim_mode=sim_mode, sim_time=o["elapsed"], **{k: o[k] for k in
+                ("laps", "recoveries", "completed", "finished")})
 
 
 def summarise(rows: list[dict]) -> None:
@@ -113,9 +156,14 @@ def summarise(rows: list[dict]) -> None:
                      f" mean={statistics.mean(steady):.2f}")
             if len(steady) > 1:
                 line += f" sd={statistics.stdev(steady):.2f}"
-        tot = [r["total6"] for r in got if r["total6"]]
+        tot = [r["sim_time"] for r in got if r.get("sim_time")]
         if tot:
-            line += f" | 6-lap total median={statistics.median(tot):.2f}"
+            line += f" | race median={statistics.median(tot):.1f}s"
+        # Recoveries are reported but not compared: in the first batch every one of them
+        # landed after the orchestrator had finalised, on a car parked at the end of a
+        # finished race, so the count tracked how long the harness idled rather than
+        # anything the car did. Breaking on the finalize removes that, but old rows in
+        # the jsonl still carry the inflated numbers.
         line += f" | recoveries={sum(r['recoveries'] for r in got)}"
         print(line)
 
