@@ -30,8 +30,11 @@ from evolve import ROOT, compose, env_for, parse_laps  # noqa: E402
 
 OUT = ROOT / "tools/lidar_load_ab.jsonl"
 SLOT = 1
-# solo6*.sh time out at 480 s; allow for AWSIM start-up and container teardown on top.
-WALL = 620
+# solo6*.sh time out at 480 s. 620 was too tight: AWSIM start-up varies enough that run
+# 00 was done in 319 s while run 02 spent the full 633 s and still showed only five laps.
+# At that width `finished` reports start-up luck rather than the car, so give the racing
+# its whole window. Lap times are unaffected either way and remain the real measurement.
+WALL = 900
 
 
 def sweep() -> None:
