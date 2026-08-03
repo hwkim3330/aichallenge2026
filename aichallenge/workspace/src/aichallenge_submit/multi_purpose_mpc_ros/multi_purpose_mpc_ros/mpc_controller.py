@@ -1001,10 +1001,15 @@ class MPCController(Node):
         # at or above 1.0 m/s the whole time. A car that will not move while being asked
         # to is a different failure from the QP-starved one the breaker documents, and it
         # is the one that actually cost that run 21 s.
-        _ey = abs(float(self._mpc.model.spatial_state.e_y))
+        # Only once the car has driven. On the grid it sits stationary and off the racing
+        # line -- a non-pole slot is metres to the side -- so the countdown would otherwise
+        # set the lap peak before a wheel turns. Reading wp 32-33 as "the first corner" came
+        # from exactly this pollution plus the ungated deadlock log line; the geometry there
+        # is near-straight, kappa 0.03 in a 6.0 m corridor, aligned with the grid to 0.5 deg.
+        _ey = abs(float(self._mpc.model.spatial_state.e_y)) if self._has_moved else 0.0
         if _ey > self._lap_peak:
             self._lap_peak, self._lap_peak_wp = _ey, self._mpc.model.wp_id
-        if 275 <= self._mpc.model.wp_id <= 300:
+        if self._has_moved and 275 <= self._mpc.model.wp_id <= 300:
             self._corner_peak = max(
                 self._corner_peak, abs(float(self._mpc.model.spatial_state.e_y)))
         if abs(v) > 2.0:
