@@ -142,6 +142,23 @@ def main() -> int:
             print(f"  d{r['slot']}: completed={r['completed']} elapsed={el} "
                   f"stalls={r['stalls']} laps={[round(x, 2) for x in r['laps']]}", flush=True)
 
+    # Per-slot comparison against whatever baseline races are already in the log. All three
+    # cars run the same config, so rotating grid assignment would change nothing; what does
+    # remove the grid confound is comparing slot to slot. The baseline is already measured
+    # at 363/355 in slot 1, 284/285 in slot 2 and 353/350 in slot 3.
+    if args.name != "base" and OUT.exists():
+        base = [json.loads(l) for l in OUT.read_text().splitlines()]
+        base = [r for r in base if "-base-" in r["tag"] and r["laps"]]
+        if base:
+            print("\nper-slot, candidate against baseline:")
+            for slot in SLOTS:
+                b = [r["elapsed"] for r in base if r["slot"] == slot and r["elapsed"]]
+                c = [r["elapsed"] for r in all_rows if r["slot"] == slot and r["elapsed"]]
+                if b and c:
+                    print(f"  slot {slot}: baseline {[round(x, 1) for x in b]} -> "
+                          f"candidate {[round(x, 1) for x in c]}  "
+                          f"delta {statistics.mean(c) - statistics.mean(b):+.1f}s")
+
     good = [r for r in all_rows if r["laps"]]
     if good:
         tot = [r["elapsed"] for r in good if r["elapsed"]]

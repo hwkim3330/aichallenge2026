@@ -1963,3 +1963,62 @@ d3 의 정체가 `wp 33`, d2 의 랩 1 최대 이탈이 `wp 32`. 어제 나는 �
 `wp=32/33` 로그는 카운트다운 중 정지한 차에서 나온 교착 차단기 줄이었고, `lap peak` 지표도
 그 정지 구간을 포함하고 있었다. 둘 다 `_has_moved` 로 게이팅했다(차단기 자체는 원복 — 출발
 실패한 차의 구조를 막으면 안 된다).
+
+
+## 2026-08-03 — 공식 업스트림 최신 확인: AI 트랙은 측위가 없다. 그리고 오프닝 손실은 크래시가 아니다
+
+`upstream/dev` = **2026-07-30** (오늘 8/3 기준 최신 본선). 우리 `dev` 가 **6 커밋 뒤처져**
+있었고 그중 둘이 직접 관련된다:
+
+```
+79c351e  feat: add e2e scripts and rviz setting (#257)      <- AI 트랙 시나리오
+74a90c8  chore: disable wall recovery in dev and parallel   <- 의도적으로 off
+```
+
+가져왔다: `aichallenge/simulator_scripts/e2e.sh`, `config/autoware-e2e.rviz`, `docs/plan/`.
+
+### AI 트랙 조건 (`e2e.sh`, 업스트림 최신)
+
+| | AI 트랙 | SW 트랙 (eval.sh) |
+|---|---|---|
+| 차량 | **4 대** | 1 대 |
+| 타임아웃 | **300 s** | 600 s |
+| `collisions` | **on** | off |
+| `start-random` | **on** | off |
+| `handicap` | off | off |
+| **`imu` / `gnss` / `v2x`** | **전부 off** | on |
+| `camera` / `lidar` | cpu / cpu | off / off |
+
+**`imu off` + `gnss off` 는 측위가 없다는 뜻이고, 따라서 MPC 는 AI 트랙에서 원리적으로 작동할
+수 없다.** `reference.launch.xml:111` 의 `imu_gnss_poser` 가 입력을 못 받으므로 초기 자세도
+`kinematic_state` 도 없다. 라이다만 남는다 — TinyLidarNet 이 유일한 후보다.
+
+그리고 **6 랩에 300 s** 다. 우리 MPC 의 깨끗한 기록이 278 s 인데 그 MPC 를 쓸 수 없다. 랩당
+50 s 이내로 라이다만으로 6 랩. 정체 한 번이면 탈락이다. 4 대 + 충돌 on + 랜덤 그리드이므로
+회피도 필수다.
+
+### `wall-recovery off` 는 공식 의도다
+
+`74a90c8` 이 dev/parallel 스크립트에서 **명시적으로 껐다.** 내가 "공식 yaml 에 항목이 없으니
+기본값 on 일 수 있고 그러면 우리 테스트가 더 가혹한 것" 이라고 세운 가설은 **기각**이다.
+
+### 3 대 오프닝 손실은 크래시가 아니다
+
+d1 은 랩 1-2 를 82.06 / 95.20 s 로 달렸는데 **정체 덤프가 0 건이다.** 첫 덤프는 t+298 s, 이미
+랩 3 이후다. 덤프는 `|v| < 0.15` 가 1 s 지속되면 찍히고 5 회분이 남아 있었으므로,
+**그 두 랩 동안 한 번도 멈추지 않았다 — 절반 속도로 달렸을 뿐이다.**
+
+출발 위치도 아니다. d3 의 카운트다운 덤프가 세 레이스 모두 동일하게
+`wp=33, e_y=0.876 m, NEVER exceeded 1.94 m` 다. 실행불능 경계 안이다.
+
+`official.yaml`(StreamingAssets/Race, schemaVersion 2)이 3 대 그리드 좌표를 주지만
+"RacingKarts root 기준 로컬 좌표" 라서 월드 변환을 모르면 쓸 수 없다(raw 로 넣으면 99 km,
+map origin 을 더하면 304 m — 둘 다 무의미). 실측 e_y 쪽이 신뢰 가능하다.
+
+**따라서 남은 설명은 `handicap: on` 이다** — 3 대 설정에서 차마다 속도를 제한할 수 있는 유일한
+장치이고, 멈추지 않은 채 절반 페이스, 랩 3 부터 정상 복귀라는 관측과 맞는다. AWSIM 로그에
+handicap 출력이 없고 업스트림 문서에도 동작 설명이 없어 아직 확정하지 못했다.
+
+**이것이 확정되면 오프닝 80 s 는 우리 결함이 아니라 대회의 평준화 장치이고, 고칠 대상이
+아니다.** 확정 방법: 같은 3 대 시나리오를 `--handicap off` 로 돌려 비교. (`parallel.sh` 가
+정확히 그 조건 — 3 대 / sync / handicap off / collisions off.)
