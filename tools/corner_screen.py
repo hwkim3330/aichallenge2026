@@ -32,7 +32,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from evolve import (BASE_CFG, BASE_REF, CFG_DIR, ROOT, compose, env_for,  # noqa: E402
-                    link_installed, race_outcome)
+                    link_installed, race_outcome, write_ref_vel)
 from lidar_load_ab import WALL, sweep  # noqa: E402
 
 OUT = ROOT / "tools/corner_screen.jsonl"
@@ -160,6 +160,8 @@ def main() -> int:
                     metavar="KEY=VALUE",
                     help="config.yaml scalar to override, e.g. wp_id_offset=3")
     ap.add_argument("--name", required=True, help="short label for this candidate")
+    ap.add_argument("--scale-ref", type=float, metavar="X",
+                    help="scale every ref_vel section uniformly, e.g. 1.10")
     ap.add_argument("--set-ref", metavar="SECTION=VALUE",
                     help="ref_vel.yaml section speed to override, e.g. s6=18.0")
     ap.add_argument("--runs", type=int, default=3)
@@ -170,10 +172,18 @@ def main() -> int:
     edits = dict(kv.split("=", 1) for kv in args.set)
     cfg = write_variant(f"config_{args.name}.yaml", edits)
     ref = "ref_vel.yaml"
-    if args.set_ref:
+    if args.scale_ref:
+        # Uniform scaling is the only speed family this project has ever got to work:
+        # ref_vel.yaml's header records per-section ceilings failing three times. x1.10 is
+        # retested here because its rejection rested on one race "finishing five laps",
+        # and that count came from the lap-message rule fixed on 2026-08-02.
+        ref = f"ref_vel_{args.name}.yaml"
+        write_ref_vel(CFG_DIR / ref, args.scale_ref)
+        link_installed(ref)
+    elif args.set_ref:
         sec, val = args.set_ref.split("=", 1)
         ref = write_ref_variant(f"ref_vel_{args.name}.yaml", sec, val)
-    print(f"{args.name}: {edits} ref[{args.set_ref or '-'}] -> {cfg} / {ref}", flush=True)
+    print(f"{args.name}: {edits} ref[{args.scale_ref or args.set_ref or '-'}] -> {cfg} / {ref}", flush=True)
 
     peaks: list[float] = []
     all_laps: list[float] = []

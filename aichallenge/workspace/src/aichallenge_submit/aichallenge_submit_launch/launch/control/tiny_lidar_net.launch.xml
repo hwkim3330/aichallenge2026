@@ -5,6 +5,14 @@
   <arg name="ckpt_path" default="$(find-pkg-share tiny_lidar_net_controller)/ckpt/tinylidarnet_weights.npy"/>
   <arg name="model_type" default="tiny_lidar_net"/>
   <arg name="csv_path" default="$(find-pkg-share laserscan_generator)/map/lane.csv"/>
+  <!-- Route through nominal_control_cmd, not control_cmd, so stuck_recovery_controller
+       sits between the network and the vehicle exactly as it does for the MPC.
+       This node is launched unconditionally in reference.launch.xml but subscribes to
+       nominal_control_cmd, so publishing straight to control_cmd left it with no input at
+       all: inert, never detecting, never rescuing. The AI track was running with no
+       deadlock safety net while the same net took the MPC track from 32 laps to 68 across
+       12 races (tools/GOAL.md). -->
+  <arg name="control_cmd_topic" default="/control/command/nominal_control_cmd"/>
 
   <group if="$(var vscan_mode)">
     <include file="$(find-pkg-share laserscan_generator)/launch/laserscan_generator.launch.xml">
@@ -16,6 +24,6 @@
   <include file="$(find-pkg-share tiny_lidar_net_controller)/launch/tiny_lidar_net.launch.xml">
     <arg name="ckpt_path" value="$(var ckpt_path)"/>
     <arg name="model_type" value="$(var model_type)"/>
-    <arg name="control_cmd_topic" value="/control/command/control_cmd"/>
+    <arg name="control_cmd_topic" value="$(var control_cmd_topic)"/>
   </include>
 </launch>
