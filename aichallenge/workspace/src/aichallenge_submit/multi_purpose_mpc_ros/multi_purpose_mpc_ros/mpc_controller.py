@@ -141,6 +141,9 @@ class MPCController(Node):
         self.use_sim_time = self.get_parameter("use_sim_time").get_parameter_value().bool_value
         self.USE_BUG_ACC = self.get_parameter("use_boost_acceleration").get_parameter_value().bool_value
         self.USE_OBSTACLE_AVOIDANCE = self.get_parameter("use_obstacle_avoidance").get_parameter_value().bool_value
+        # Set here, not beside the obstacle setup, because _setup_mpc reads it.
+        self._v2x_avoidance = os.environ.get("V2X_AVOIDANCE", "1") not in ("0", "false", "")
+        self._avoidance_enabled = self.USE_OBSTACLE_AVOIDANCE or self._v2x_avoidance
         self.use_stats = self.get_parameter("use_stats").get_parameter_value().bool_value
 
         self._config_path = config_path
@@ -463,7 +466,7 @@ class MPCController(Node):
                 mpc_cfg.ay_max,
                 scaled_steer_rate_max,
                 mpc_cfg.wp_id_offset,
-                self.USE_OBSTACLE_AVOIDANCE,
+                self._avoidance_enabled,
                 self._cfg.reference_path.use_path_constraints_topic,
                 mpc_cfg.use_max_kappa_pred)
 
@@ -518,10 +521,20 @@ class MPCController(Node):
         self._path_constraints = None
 
         # Obstacles
-        if self.USE_OBSTACLE_AVOIDANCE:
-            self._static_obstacles: List[Obstacle] = create_obstacles()
-            self._dynamic_obstacles: List[Obstacle] = []
-            self._obstacles_updated = bool(self._static_obstacles)
+        #
+        # V2X tracking is deliberately NOT gated on USE_OBSTACLE_AVOIDANCE. The SW
+        # preliminary runs my car against a rated opponent plus an NPC, V2X reporting other
+        # vehicles' positions is an enabled sensor, and a collision costs a timed speed
+        # restriction -- measured as the 80 s the three-car runs lose in laps 1-2.
+        #
+        # Running alone costs nothing: no publisher means the callback never fires,
+        # _dynamic_obstacles stays empty, the map gets no obstacles, and MPC's
+        # obstacles_present gate keeps it on today's static-corridor path.
+        self._static_obstacles: List[Obstacle] = (
+            create_obstacles() if self.USE_OBSTACLE_AVOIDANCE else [])
+        self._dynamic_obstacles: List[Obstacle] = []
+        self._obstacles_updated = bool(self._static_obstacles)
+        if self._avoidance_enabled:
             v2x_cfg = self._cfg.v2x_obstacle_avoidance  # type: ignore
             self._v2x_tracker = V2XVehicleTracker(
                 v_max_safety=float(v2x_cfg.v_max_safety),
@@ -623,6 +636,7 @@ class MPCController(Node):
                 self._border_cells_sub = self.create_subscription(
                     BorderCells, "/path_constraints_provider/border_cells", self._border_cells_callback, 1)
 
+        if self._avoidance_enabled:
             self._v2x_sub = self.create_subscription(
                 V2XVehiclePositionArray,
                 "/v2x/vehicle_positions",
@@ -910,7 +924,7 @@ class MPCController(Node):
                 sys.exit(1)
             # plot_reference_path(self._car)
 
-        if self.USE_OBSTACLE_AVOIDANCE and self._obstacles_updated:
+        if self._avoidance_enabled and self._obstacles_updated:
             self._obstacles_updated = False
             self._map.reset_map()
             filtered_dynamic = self._filter_obstacles_to_corridor(self._dynamic_obstacles)
