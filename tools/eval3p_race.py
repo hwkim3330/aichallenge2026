@@ -32,7 +32,8 @@ from evolve import (CFG_DIR, ROOT, compose, env_for, race_outcome,  # noqa: E402
 from corner_screen import write_ref_variant, write_variant  # noqa: E402
 
 OUT = ROOT / "tools/eval3p_log.jsonl"
-SLOTS = [1, 2, 3]
+SIM_MODE = "eval3p"
+SLOTS = [1, 2, 3]        # overridden per scenario in main()
 WALL = 1000          # 600 s race plus AWSIM start-up for three Autoware instances
 
 
@@ -57,7 +58,7 @@ def one_race(tag: str, cfg: str = "config.yaml",
     host_out = ROOT / "output" / tag
     sweep()
     env0 = dict(env_for(SLOTS[0], cfg, ref, out))
-    env0.update(ROS_DOMAIN_ID="0", SIM_MODE="eval3p", LOG_DIR=out)
+    env0.update(ROS_DOMAIN_ID="0", SIM_MODE=SIM_MODE, LOG_DIR=out)
     procs = [compose(["run", "--rm", "-T", "--name", f"eval3p-sim-{tag}",
                       "simulator"], env0, wait=False)]
     time.sleep(10)
@@ -118,7 +119,16 @@ def main() -> int:
     ap.add_argument("--set-ref", metavar="SECTION=VALUE",
                     help="ref_vel section override, e.g. s1=20.0")
     ap.add_argument("--name", default="base")
+    ap.add_argument("--scenario", default="eval3p",
+                    help="simulator_scripts name: eval3p (3 submissions) or prelim "
+                         "(2 submissions + 1 NPC, the official preliminary)")
+    ap.add_argument("--cars", type=int, default=3,
+                    help="how many Autoware instances to launch; prelim needs 2")
     args = ap.parse_args()
+
+    global SLOTS, SIM_MODE
+    SLOTS = list(range(1, args.cars + 1))
+    SIM_MODE = args.scenario
 
     cfg, ref = "config.yaml", "ref_vel.yaml"
     if args.set:
