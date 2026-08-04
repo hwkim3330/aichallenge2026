@@ -1,0 +1,3 @@
+{"tag": "tourney-00", "slot": 1, "config": "config.yaml", "laps": [], "completed": 0, "elapsed": null, "finished": false, "stalls": 3}
+{"tag": "tourney-00", "slot": 2, "config": "config_top36.yaml", "laps": [116.41565704345703, 87.72642517089844], "completed": 2, "elapsed": 473.41565704345703, "finished": false, "stalls": 5}
+{"tag": "tourney-00", "slot": 3, "config": "config_csvmt_plus.yaml", "laps": [50.341548919677734, 57.07798767089844, 112.31291198730469, 73.0694808959961, 88.32609558105469, 63.15928649902344], "completed": 6, "elapsed": 444.34154891967773, "finished": true, "stalls": 5}
