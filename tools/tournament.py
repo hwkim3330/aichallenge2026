@@ -78,9 +78,11 @@ def one_round(tag: str, entrants: list[str]) -> list[dict]:
         procs.append(compose(["run", "--rm", "-T", "--name", f"tourney-{tag}-d{slot}",
                               "autoware"], env_for(slot, cfg, "ref_vel.yaml", out),
                              wait=False))
-        time.sleep(4)
+        time.sleep(8)
 
-    if wait_grounded(host, SLOTS) < len(SLOTS):
+    # 420 s rather than the 240 s default: three Autoware instances plus AWSIM never all
+    # reported ready inside 240, and with sync start an unready car begins uncontrolled.
+    if wait_grounded(host, SLOTS, timeout=420) < len(SLOTS):
         print("  warning: not every car reported ready", flush=True)
     request_start()
 
@@ -152,7 +154,11 @@ def main() -> int:
         order = sorted(POOL, key=lambda c: (sum(1 for r in rows if r["config"] == c),
                                             POOL.index(c)))
         entrants = [CHAMPION, order[0], order[1]]
-        tag = f"tourney-{len(rows) // 3:02d}"
+        # Rotate which entrant sits in which grid slot; slot 1 is the worst and pinning the
+        # champion there decided the result rather than measuring it.
+        rnd = len(rows) // 3
+        entrants = entrants[rnd % 3:] + entrants[:rnd % 3]
+        tag = f"tourney-{rnd:02d}"
         print(f"[{time.strftime('%H:%M:%S')}] {tag}: {entrants}", flush=True)
         got = one_round(tag, entrants)
         rows += got
