@@ -1,0 +1,68 @@
+# SUBMISSION. Decided by three races in the format the event scores: three cars,
+# six laps, 600 s, ranking on, with the grid assignment ROTATED between races so the
+# result is not a front-row artefact.
+#
+#   candidate                     laps completed   totals (s)             recoveries
+#   THIS  blend45 + x1.00              3 of 3      327.6 / 313.5 / 284.4    2 / 10 / 3
+#         blend45 + x1.10 + lead-ins   2 of 3      320.8 / 290.7 /  DNF     5 /  4 / 16
+#         official line + baseline     1 of 3        --  /   --  / 329.0   12 /  8 / 6
+#
+# Two races in, x1.10 looked like the answer: it won both, once from the back row. The
+# third race is why three were run -- it finished five laps with 16 recoveries. Not
+# finishing is unrecoverable in a ranked race, and this profile is the only one that
+# finished all three. It also set the fastest total of any race by any candidate
+# (284.4 s).
+#
+# The official line was eliminated: two DNFs including one from the front row. Its
+# minimum clearance is 1.68 m against this line's 1.25 m, so more room, but it is 10 m
+# longer and that costs more in traffic than the room is worth.
+#
+# Speeds here are the 2026-07-28 baseline's, unchanged. The line is the 36.319 s run's,
+# blended toward the official one until clearance and curvature both hold (336.1 m,
+# minimum clearance 1.25 m, swept margin +0.46 m, |kappa|max 0.228 which is below the
+# official line's own 0.236).
+#
+# Solo: 46.53 s over six laps with zero recoveries.
+#
+# Bounds already established by measurement -- do not re-test:
+#   x1.12 -> 49.58 s solo, two laps lost. x1.15 -> collapses, peak lateral demand 20.93
+#   against 18.60 that this vehicle has been measured producing.
+#   Per-section grip ceilings failed three times, with and without braking lead-ins,
+#   coarse and fine. Only uniform scaling of this shape works, and x1.10 is where the
+#   uniform-scaling family stops being reliable.
+#   a_max above 1.35 is pointless: 1.35 saturates for the whole launch while the
+#   vehicle delivers 0.64 m/s^2.
+#   delta_max_deg at the gain-consistent 22 deg is 0.47 s slower; geometry only asks
+#   14.4 deg.
+#   use_obstacle_avoidance on gives queueing, not overtaking.
+ref_vel_configulator:
+  s1:
+    ref_vel: 36.0
+    wp_id: 1
+  s1_1:
+    ref_vel: 36.0
+    wp_id: 30
+  s2:
+    ref_vel: 36.0
+    wp_id: 55
+  s3:
+    ref_vel: 36.0
+    wp_id: 100
+  s4:
+    ref_vel: 22.0
+    wp_id: 155
+  s5:
+    ref_vel: 36.0
+    wp_id: 190
+  s6:
+    ref_vel: 22.0
+    wp_id: 265
+  s7:
+    ref_vel: 36.0
+    wp_id: 290
+  s8:
+    ref_vel: 25.0
+    wp_id: 320
+  s9:
+    ref_vel: 36.0
+    wp_id: 335

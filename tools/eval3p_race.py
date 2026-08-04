@@ -113,7 +113,8 @@ def one_race(tag: str, cfg: str = "config.yaml",
 
 
 def one_race_per_slot(tag: str, configs: list[str], ref: str,
-                      extra: dict | None = None) -> list[dict]:
+                      extra: dict | None = None,
+                      refs: list[str] | None = None) -> list[dict]:
     """A race where each slot runs a different config, for head-to-head comparison."""
     from evolve import link_installed
     out = f"/output/{tag}"
@@ -125,11 +126,13 @@ def one_race_per_slot(tag: str, configs: list[str], ref: str,
     procs = [compose(["run", "--rm", "-T", "--name", f"eval3p-sim-{tag}",
                       "simulator"], env0, wait=False)]
     time.sleep(10)
-    for slot, cfg in zip(SLOTS, configs):
+    for i, (slot, cfg) in enumerate(zip(SLOTS, configs)):
         link_installed(cfg)
+        rv = refs[i] if refs else ref
+        link_installed(rv)
         procs.append(compose(["run", "--rm", "-T", "--name", f"eval3p-{tag}-d{slot}",
                               "autoware"],
-                             {**env_for(slot, cfg, ref, out), **extra}, wait=False))
+                             {**env_for(slot, cfg, rv, out), **extra}, wait=False))
         time.sleep(8)
     # Only the first car. Waiting for all of them is a deadlock, and the wait is paid by
     # whoever is already sitting on the grid.
@@ -159,7 +162,8 @@ def one_race_per_slot(tag: str, configs: list[str], ref: str,
         o = (race_outcome(log, timeout_s=480.0) if log.exists()
              else dict(laps=[], completed=0, elapsed=None, finished=False))
         text = log.read_text(errors="replace") if log.exists() else ""
-        rows.append(dict(tag=tag, slot=slot, config=cfg, laps=o["laps"],
+        rows.append(dict(tag=tag, slot=slot, config=cfg,
+                         ref=(refs[SLOTS.index(slot)] if refs else ref), laps=o["laps"],
                          completed=o["completed"], elapsed=o["elapsed"],
                          finished=o["finished"],
                          stalls=len(re.findall(r"STALL ANATOMY", text)),
@@ -179,6 +183,8 @@ def main() -> int:
     ap.add_argument("--set-ref", metavar="SECTION=VALUE",
                     help="ref_vel section override, e.g. s1=20.0")
     ap.add_argument("--name", default="base")
+    ap.add_argument("--refs",
+                    help="comma-separated ref_vel file per slot, rotated each race like --configs")
     ap.add_argument("--configs",
                     help="comma-separated config per slot, e.g. config.yaml,config_x.yaml; "
                          "rotated each race so a result is not a grid artefact")
@@ -207,13 +213,18 @@ def main() -> int:
     for i in range(args.races):
         tag = f"eval3p{args.batch}-{args.name}-{i:02d}"
         print(f"[{time.strftime('%H:%M:%S')}] {tag}", flush=True)
-        if args.configs:
-            per = [c.strip() for c in args.configs.split(",")]
+        if args.configs or args.refs:
+            per = ([c.strip() for c in args.configs.split(",")] if args.configs
+                   else [cfg] * len(SLOTS))
             # Rotate which config sits in which slot. Slot position measurably changes the
             # result, so a fixed assignment would decide the comparison instead of measuring it.
             per = per[i % len(per):] + per[:i % len(per)]
+            refs = None
+            if args.refs:
+                refs = [r.strip() for r in args.refs.split(",")]
+                refs = refs[i % len(refs):] + refs[:i % len(refs)]
             rows = one_race_per_slot(tag, per, ref,
-                                     dict(kv.split("=", 1) for kv in args.env))
+                                     dict(kv.split("=", 1) for kv in args.env), refs)
         else:
             rows = one_race(tag, cfg, ref, dict(kv.split("=", 1) for kv in args.env))
         all_rows += rows
