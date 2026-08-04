@@ -112,6 +112,58 @@ def one_race(tag: str, cfg: str = "config.yaml",
     return rows
 
 
+def one_race_per_slot(tag: str, configs: list[str], ref: str,
+                      extra: dict | None = None) -> list[dict]:
+    """A race where each slot runs a different config, for head-to-head comparison."""
+    from evolve import link_installed
+    out = f"/output/{tag}"
+    host_out = ROOT / "output" / tag
+    extra = extra or {}
+    sweep()
+    env0 = dict(env_for(SLOTS[0], configs[0], ref, out))
+    env0.update(ROS_DOMAIN_ID="0", SIM_MODE=SIM_MODE, LOG_DIR=out, **extra)
+    procs = [compose(["run", "--rm", "-T", "--name", f"eval3p-sim-{tag}",
+                      "simulator"], env0, wait=False)]
+    time.sleep(10)
+    for slot, cfg in zip(SLOTS, configs):
+        link_installed(cfg)
+        procs.append(compose(["run", "--rm", "-T", "--name", f"eval3p-{tag}-d{slot}",
+                              "autoware"],
+                             {**env_for(slot, cfg, ref, out), **extra}, wait=False))
+        time.sleep(8)
+    if wait_grounded(host_out, SLOTS, timeout=420) < len(SLOTS):
+        print("  warning: not every car reported ready", flush=True)
+    request_start()
+    deadline = time.time() + WALL
+    while time.time() < deadline:
+        if procs[0].poll() is not None:
+            break
+        done = sum(1 for s in SLOTS
+                   if (host_out / f"d{s}" / "autoware.log").exists()
+                   and "latest link updated" in
+                   (host_out / f"d{s}" / "autoware.log").read_text(errors="replace"))
+        if done == len(SLOTS):
+            time.sleep(5)
+            break
+        time.sleep(10)
+    for p in procs:
+        if p.poll() is None:
+            p.kill()
+    sweep()
+    time.sleep(5)
+    rows = []
+    for slot, cfg in zip(SLOTS, configs):
+        log = host_out / f"d{slot}" / "autoware.log"
+        o = (race_outcome(log, timeout_s=480.0) if log.exists()
+             else dict(laps=[], completed=0, elapsed=None, finished=False))
+        text = log.read_text(errors="replace") if log.exists() else ""
+        rows.append(dict(tag=tag, slot=slot, config=cfg, laps=o["laps"],
+                         completed=o["completed"], elapsed=o["elapsed"],
+                         finished=o["finished"],
+                         stalls=len(re.findall(r"STALL ANATOMY", text))))
+    return rows
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--races", type=int, default=2)
@@ -120,6 +172,9 @@ def main() -> int:
     ap.add_argument("--set-ref", metavar="SECTION=VALUE",
                     help="ref_vel section override, e.g. s1=20.0")
     ap.add_argument("--name", default="base")
+    ap.add_argument("--configs",
+                    help="comma-separated config per slot, e.g. config.yaml,config_x.yaml; "
+                         "rotated each race so a result is not a grid artefact")
     ap.add_argument("--scenario", default="eval3p",
                     help="simulator_scripts name: eval3p (3 submissions) or prelim "
                          "(2 submissions + 1 NPC, the official preliminary)")
@@ -145,7 +200,15 @@ def main() -> int:
     for i in range(args.races):
         tag = f"eval3p{args.batch}-{args.name}-{i:02d}"
         print(f"[{time.strftime('%H:%M:%S')}] {tag}", flush=True)
-        rows = one_race(tag, cfg, ref, dict(kv.split("=", 1) for kv in args.env))
+        if args.configs:
+            per = [c.strip() for c in args.configs.split(",")]
+            # Rotate which config sits in which slot. Slot position measurably changes the
+            # result, so a fixed assignment would decide the comparison instead of measuring it.
+            per = per[i % len(per):] + per[:i % len(per)]
+            rows = one_race_per_slot(tag, per, ref,
+                                     dict(kv.split("=", 1) for kv in args.env))
+        else:
+            rows = one_race(tag, cfg, ref, dict(kv.split("=", 1) for kv in args.env))
         all_rows += rows
         with OUT.open("a") as f:
             for r in rows:

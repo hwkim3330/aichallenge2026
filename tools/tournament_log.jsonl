@@ -1,3 +1,9 @@
 {"tag": "tourney-00", "slot": 1, "config": "config.yaml", "laps": [], "completed": 0, "elapsed": null, "finished": false, "stalls": 3}
 {"tag": "tourney-00", "slot": 2, "config": "config_top36.yaml", "laps": [116.41565704345703, 87.72642517089844], "completed": 2, "elapsed": 473.41565704345703, "finished": false, "stalls": 5}
 {"tag": "tourney-00", "slot": 3, "config": "config_csvmt_plus.yaml", "laps": [50.341548919677734, 57.07798767089844, 112.31291198730469, 73.0694808959961, 88.32609558105469, 63.15928649902344], "completed": 6, "elapsed": 444.34154891967773, "finished": true, "stalls": 5}
+{"tag": "tourney-01", "slot": 1, "config": "config_csvmt_ay11.yaml", "laps": [83.01901245117188, 116.5655746459961, 109.78929901123047, 117.51005554199219], "completed": 4, "elapsed": 474.0190124511719, "finished": false, "stalls": 5}
+{"tag": "tourney-01", "slot": 2, "config": "config_csvmt_ay13.yaml", "laps": [83.81857299804688, 93.59320068359375, 71.33543395996094, 100.53438568115234], "completed": 5, "elapsed": 473.8185729980469, "finished": false, "stalls": 5}
+{"tag": "tourney-01", "slot": 3, "config": "config.yaml", "laps": [196.36097717285156, 110.76876068115234, 111.66826629638672], "completed": 3, "elapsed": 473.36097717285156, "finished": false, "stalls": 5}
+{"tag": "tourney-02", "slot": 1, "config": "config_expA.yaml", "laps": [177.71278381347656, 63.25430679321289, 116.73048400878906, 114.81153869628906], "completed": 4, "elapsed": 473.71278381347656, "finished": false, "stalls": 5}
+{"tag": "tourney-02", "slot": 2, "config": "config.yaml", "laps": [196.13075256347656, 120.26354217529297], "completed": 3, "elapsed": 473.13075256347656, "finished": false, "stalls": 5}
+{"tag": "tourney-02", "slot": 3, "config": "config_csvmt_ramps.yaml", "laps": [66.39814758300781, 46.55574035644531, 46.6407585144043, 85.19781494140625, 88.4210433959961, 71.965087890625], "completed": 6, "elapsed": 405.3981475830078, "finished": true, "stalls": 5}
