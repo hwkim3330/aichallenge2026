@@ -2270,3 +2270,59 @@ handicap 출력이 없고 업스트림 문서에도 동작 설명이 없어 아�
 올릴 근거가 충분하다.
 
 포털 `https://aichallenge-board.jsae.or.jp` → Login → Submit Code.
+
+
+## 2026-08-04 — AI 트랙 첫 실측: 네트워크가 속도를 내지 않는다. 복구 노드는 MPC 전용이었다
+
+`control_method=tiny_lidar_net` 을 처음으로 돌렸다(solo6lidar, 라이다 on, 6 랩).
+
+### 1. TLN 은 `speed: 0.0` 을 출력한다 — 랩 0
+
+라이브로 두 번 확인:
+
+```
+/control/command/nominal_control_cmd  20.2 Hz
+  steering_tire_angle: -0.216      <- 조향은 살아 있다
+  speed: 0.0                       <- 속도가 0
+  acceleration: 0.6
+/vehicle/status/velocity_status  longitudinal_velocity: 0.0
+```
+
+`TinyLidarNetNode is ready.` 는 뜨고 20 Hz 로 발행하는데 속도가 0 이라 차가 안 움직인다.
+원인은 이미 이 문서에 있다: BC 학습 데이터의 가속 타깃이 **97.6% 가 tanh 출력 범위 밖이고
+86.4% 가 단일 값**이었다. 네트워크는 속도를 배운 적이 없다.
+
+**AI 트랙은 모델 재학습 없이는 한 랩도 못 돈다.** 예선이 슬라이드+영상 심사인데 "주행 영상"
+자체를 만들 수 없는 상태다.
+
+### 2. 복구 노드와 lidar_guard 는 `control_method == 'mpc'` 그룹 안에 있었다
+
+실행된 노드 목록에 둘 다 없다:
+
+```
+robot_state_publisher, vehicle_velocity_converter, imu_corrector, gnss_poser,
+gyro_odometer, imu_gnss_poser_node, ekf_localizer, simple_trajectory_generator_node,
+tiny_lidar_net_controller_node, component_container, relay, autostart_orchestrator_node
+```
+
+어제 "무조건 실행된다" 고 읽은 것이 틀렸다. 그래서 TLN 출력 토픽을 `nominal_control_cmd` 로
+바꾼 내 수정이 **사슬을 끊었다** — 받는 노드가 없어 `/control/command/control_cmd` 트래픽이
+0 이 됐다. 공식 README 가 지시하는 배선은 맞지만 그것을 받을 노드를 먼저 띄워야 했다.
+
+`stuck_recovery_controller` 를 모든 `control_method` 그룹 **밖**으로 옮겼다(`lidar_guard` 는
+`/control/command/mpc_cmd` 를 구독하므로 MPC 전용으로 남겼다). **미검증이다** — TLN 이 속도 0
+이라 검증이 불가능하고, MPC 경로에서는 원래 켜져 있었으므로 변화가 없어야 하지만 확인하지
+않았다.
+
+XML 주석에 `--` 를 넣어 파일을 깨뜨렸다(이 세션 두 번째 같은 실수). 고쳤다.
+
+### AI 트랙에 실제로 남은 일
+
+1. **속도 타깃을 고쳐 재학습.** `speeds.npy` 추출과 `--min-speed` 필터는 만들어 뒀다. 레이스
+   bag 은 68% 가 정지 프레임이라 못 쓰고 `solo6lidar` 주행 3 회분이 더 필요하다.
+2. 규칙상 허용 센서에 **휠 오도메트리와 조향각**이 있다. 현재 TLN 은 스캔만 쓴다 — 속도
+   피드백을 입력에 넣으면 속도 회귀가 훨씬 쉬워진다.
+3. 예선 마감 8 월, 결선 조건은 4 대 / 300 s / 충돌 on / 랜덤 그리드.
+
+**제출물은 무변경이다.** `submit/aichallenge_submit.tar.gz`(8/2, 6/6, 278.23 s)에 어제·오늘의
+실험이 하나도 들어 있지 않다.

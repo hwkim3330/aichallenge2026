@@ -227,20 +227,6 @@
              to="/control/command/nominal_control_cmd"/>
     </node>
 
-    <!-- Sits between the MPC and the vehicle: passes nominal_control_cmd straight
-         through to control_cmd, and takes over with a reverse then drive manoeuvre
-         when the car is commanded to move but is not moving.
-         This matters specifically for evaluation. aichallenge/simulator_scripts/
-         eval.sh starts the simulator with wall recovery OFF, so a wall contact is
-         not undone for us: the car stays where it stopped and the run ends with
-         whatever laps it had. Measured today, a bad corner speed left the vehicle
-         stationary 62 m in, at full steering lock (0.93 rad) and full commanded
-         acceleration, for the rest of the session.
-         The package was already in aichallenge_submit but nothing launched it. -->
-    <node pkg="stuck_recovery_controller" exec="stuck_recovery_controller_node"
-          name="stuck_recovery_controller" output="screen">
-      <param name="use_sim_time" value="$(var use_sim_time)"/>
-    </node>
   </group>
 
   <group if="$(eval &quot;'$(var control_method)' == 'tiny_lidar_net'&quot;)">
@@ -258,6 +244,29 @@
   <group if="$(eval &quot;'$(var control_method)' == 'joycon'&quot;)">
     <include file="$(find-pkg-share aichallenge_submit_launch)/launch/control/joycon.launch.xml"/>
   </group>
+
+
+  <!-- Outside every control_method group on purpose.
+       This node used to sit inside the mpc group, so control_method=tiny_lidar_net ran with
+       no recovery at all. Once the network was pointed at nominal_control_cmd, which is what
+       the official stuck_recovery_controller README instructs, nothing was left listening:
+       /control/command/control_cmd carried no traffic and the car never moved.
+       The AI division is judged on a 300 s six-lap run with four cars and collisions on, so it
+       needs the net more than the MPC does. -->
+    <!-- Sits between the MPC and the vehicle: passes nominal_control_cmd straight
+         through to control_cmd, and takes over with a reverse then drive manoeuvre
+         when the car is commanded to move but is not moving.
+         This matters specifically for evaluation. aichallenge/simulator_scripts/
+         eval.sh starts the simulator with wall recovery OFF, so a wall contact is
+         not undone for us: the car stays where it stopped and the run ends with
+         whatever laps it had. Measured today, a bad corner speed left the vehicle
+         stationary 62 m in, at full steering lock (0.93 rad) and full commanded
+         acceleration, for the rest of the session.
+         The package was already in aichallenge_submit but nothing launched it. -->
+    <node pkg="stuck_recovery_controller" exec="stuck_recovery_controller_node"
+          name="stuck_recovery_controller" output="screen">
+      <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
 
   <group if="$(eval &quot;'$(var control_method)' == 'rl_train'&quot;)">
     <include file="$(find-pkg-share aichallenge_submit_launch)/launch/control/rl_train.launch.xml"/>

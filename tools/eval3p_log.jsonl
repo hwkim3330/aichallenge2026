@@ -29,3 +29,7 @@
 {"tag": "eval3pv-v2xon-00", "slot": 2, "laps": [106.63603210449219, 412.1064453125, 59.50350570678711], "completed": 3, "elapsed": 592.6360321044922, "finished": false, "stalls": 4, "lap_peaks": [2.209, 4.186, 1.422], "peak_wps": [33, 271, 134]}
 {"tag": "eval3pv-v2xon-01", "slot": 1, "laps": [139.86585998535156, 190.01478576660156, 20.31959342956543], "completed": 3, "elapsed": 592.8658599853516, "finished": false, "stalls": 5, "lap_peaks": [4.719, 0.993, 3.364], "peak_wps": [252, 85, 236]}
 {"tag": "eval3pv-v2xon-01", "slot": 2, "laps": [181.80677795410156, 52.4169921875, 46.76078414916992], "completed": 3, "elapsed": 592.8067779541016, "finished": false, "stalls": 5, "lap_peaks": [2.21, 1.312, 1.711], "peak_wps": [33, 134, 245]}
+{"tag": "eval3pL-lead12-00", "slot": 1, "laps": [], "completed": 0, "elapsed": null, "finished": false, "stalls": 1, "lap_peaks": [], "peak_wps": []}
+{"tag": "eval3pL-lead12-00", "slot": 2, "laps": [], "completed": 0, "elapsed": null, "finished": false, "stalls": 1, "lap_peaks": [], "peak_wps": []}
+{"tag": "eval3pL-lead12-01", "slot": 1, "laps": [], "completed": 0, "elapsed": null, "finished": false, "stalls": 1, "lap_peaks": [], "peak_wps": []}
+{"tag": "eval3pL-lead12-01", "slot": 2, "laps": [], "completed": 0, "elapsed": null, "finished": false, "stalls": 2, "lap_peaks": [], "peak_wps": []}
