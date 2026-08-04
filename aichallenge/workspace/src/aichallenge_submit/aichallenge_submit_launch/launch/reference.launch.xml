@@ -35,8 +35,6 @@
   <arg name="guard_front_limit" default="1.25"/>
   <arg name="guard_side_limit" default="0.72"/>
   <arg name="guard_speed" default="5.5"/>
-  <!-- Long-range narrow lead guard. 0 disables; see lidar_guard.py for why it exists. -->
-  <arg name="lead_limit" default="0.0"/>
   <arg name="mpc_ref_vel_file" default=""/>
   <!-- Gates ALL other-vehicle awareness in mpc_controller: the V2X tracker, the
        path_constraints subscription and the wait for it. config.yaml's
@@ -222,7 +220,6 @@
       <param name="front_limit" value="$(var guard_front_limit)"/>
       <param name="side_limit" value="$(var guard_side_limit)"/>
       <param name="guard_speed" value="$(var guard_speed)"/>
-      <param name="lead_limit" value="$(var lead_limit)"/>
       <remap from="/control/command/control_cmd"
              to="/control/command/nominal_control_cmd"/>
     </node>

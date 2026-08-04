@@ -13,7 +13,6 @@ from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import LaserScan
 from autoware_auto_control_msgs.msg import AckermannControlCommand
-from autoware_auto_vehicle_msgs.msg import VelocityReport
 
 
 class LidarGuard(Node):
@@ -27,34 +26,6 @@ class LidarGuard(Node):
         self.front_limit = float(self.declare_parameter("front_limit", 1.25).value)
         self.side_limit = float(self.declare_parameter("side_limit", 0.72).value)
         self.guard_speed = float(self.declare_parameter("guard_speed", 5.5).value)
-        # Long-range narrow lead check, separate from the wall guard above.
-        #
-        # The wall guard is a last-instant device: a +-0.44 rad cone at 1.25 m, which at
-        # 8.33 m/s is 0.15 s of warning. The scored preliminary always contains an AWSIM NPC
-        # lapping in about 149 s, roughly 2.3 m/s, and battle3.sh records that the NPC does
-        # NOT appear in /v2x/vehicle_positions -- lidar is the only sensor that sees it.
-        # Closing 8.33 on 2.3 m/s needs about 20 m to shed at a_min 1.6 m/s^2, sixteen times
-        # what the wall guard looks at, which is why the car rear-ends it: with collisions on
-        # the preliminary scores 0 of 6 six-lap finishes against 6 of 6 with contact off.
-        #
-        # Kept narrow so it sees a car on our line rather than the outside of every corner,
-        # and default OFF (0.0) because too many hypotheses have failed today to ship one
-        # unmeasured. lead_limit is the range at which to start yielding.
-        self.lead_limit = float(self.declare_parameter("lead_limit", 0.0).value)
-        self.lead_halfangle = float(self.declare_parameter("lead_halfangle", 0.10).value)
-        self.lead_gap = float(self.declare_parameter("lead_gap", 3.0).value)
-        # Range alone cannot tell a wall from a car: LEAD_LIMIT=12 with a pure distance test
-        # completed no laps, because anything within lead_gap dead ahead commands zero speed
-        # and in a hairpin the wall IS within 3 m. Closing rate separates them. A wall
-        # approaches at our own speed; a car doing 2.3 m/s while we do 8.3 approaches at 6.
-        # So yield only when the gap is shrinking clearly SLOWER than our speed.
-        self.lead_closing_frac = float(
-            self.declare_parameter("lead_closing_frac", 0.65).value)
-        self._lead_prev: Optional[tuple] = None
-        self._speed = 0.0
-        self.create_subscription(
-            VelocityReport, "/vehicle/status/velocity_status",
-            lambda m: setattr(self, "_speed", abs(float(m.longitudinal_velocity))), qos)
         self._scan: Optional[LaserScan] = None
         self._cmd: Optional[AckermannControlCommand] = None
         self.create_subscription(LaserScan, "/sensing/lidar/scan", self._scan_cb, qos)
@@ -99,27 +70,6 @@ class LidarGuard(Node):
             if imminent:
                 out.longitudinal.speed = min(out.longitudinal.speed, self.guard_speed)
                 out.longitudinal.acceleration = min(out.longitudinal.acceleration, 0.45)
-            if self.lead_limit > 0.0:
-                lead = self._sector(self._scan, -self.lead_halfangle, self.lead_halfangle)
-                now_s = self.get_clock().now().nanoseconds * 1e-9
-                closing = None
-                if self._lead_prev is not None:
-                    dt = now_s - self._lead_prev[1]
-                    if 0.01 < dt < 0.5:
-                        closing = (self._lead_prev[0] - lead) / dt
-                self._lead_prev = (lead, now_s)
-                # A wall closes at our own speed. Something ahead that is moving closes
-                # slower. Require both: near enough to matter, and not closing like a wall.
-                moving_ahead = (closing is not None and self._speed > 1.0
-                                and closing < self.lead_closing_frac * self._speed)
-                if lead < self.lead_limit and moving_ahead:
-                    # Bleed speed off with the closing gap instead of arriving at full pace.
-                    # Zero at lead_gap so the car settles behind rather than into.
-                    allow = max(0.0, (lead - self.lead_gap)) * 0.75
-                    out.longitudinal.speed = min(out.longitudinal.speed, allow)
-                    if allow < out.longitudinal.speed:
-                        out.longitudinal.acceleration = min(
-                            out.longitudinal.acceleration, 0.0)
             if front < 0.90:
                 # Bias toward the side with more free space only at imminent range.
                 escape = 0.28 if left > right else -0.28

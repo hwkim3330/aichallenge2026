@@ -142,7 +142,12 @@ class MPCController(Node):
         self.USE_BUG_ACC = self.get_parameter("use_boost_acceleration").get_parameter_value().bool_value
         self.USE_OBSTACLE_AVOIDANCE = self.get_parameter("use_obstacle_avoidance").get_parameter_value().bool_value
         # Set here, not beside the obstacle setup, because _setup_mpc reads it.
-        self._v2x_avoidance = os.environ.get("V2X_AVOIDANCE", "1") not in ("0", "false", "")
+        # Default OFF. Enabling it by default was a regression: with an opponent on v2x the gate
+        # opens, its predicted positions enter the corridor computation, and the car wedges --
+        # 31 to 37 stuck events per car in a two-car race against a baseline of 11 across six.
+        # The verified submission does not contain this code at all. Opt in with V2X_AVOIDANCE=1,
+        # and measure before trusting it.
+        self._v2x_avoidance = os.environ.get("V2X_AVOIDANCE", "0") not in ("0", "false", "")
         self._avoidance_enabled = self.USE_OBSTACLE_AVOIDANCE or self._v2x_avoidance
         self.use_stats = self.get_parameter("use_stats").get_parameter_value().bool_value
 
