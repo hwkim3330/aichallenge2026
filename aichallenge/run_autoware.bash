@@ -38,6 +38,7 @@ esac
 [[ -n "${GUARD_FRONT_LIMIT:-}" ]] && opts+=("guard_front_limit:=${GUARD_FRONT_LIMIT}")
 [[ -n "${GUARD_SIDE_LIMIT:-}" ]] && opts+=("guard_side_limit:=${GUARD_SIDE_LIMIT}")
 [[ -n "${GUARD_SPEED:-}" ]] && opts+=("guard_speed:=${GUARD_SPEED}")
+[[ -n "${LEAD_LIMIT:-}" ]] && opts+=("lead_limit:=${LEAD_LIMIT}")
 # 2026-08-02 escape experiments, read straight from the environment by
 # stuck_recovery_controller (not launch args). Default off; see GOAL.md.
 export RECOVERY_STRAIGHT_ESCAPE="${RECOVERY_STRAIGHT_ESCAPE:-}"

@@ -53,19 +53,20 @@ def sweep() -> None:
 
 
 def one_race(tag: str, cfg: str = "config.yaml",
-             ref: str = "ref_vel.yaml") -> list[dict]:
+             ref: str = "ref_vel.yaml", extra: dict | None = None) -> list[dict]:
     out = f"/output/{tag}"
     host_out = ROOT / "output" / tag
     sweep()
+    extra = extra or {}
     env0 = dict(env_for(SLOTS[0], cfg, ref, out))
-    env0.update(ROS_DOMAIN_ID="0", SIM_MODE=SIM_MODE, LOG_DIR=out)
+    env0.update(ROS_DOMAIN_ID="0", SIM_MODE=SIM_MODE, LOG_DIR=out, **extra)
     procs = [compose(["run", "--rm", "-T", "--name", f"eval3p-sim-{tag}",
                       "simulator"], env0, wait=False)]
     time.sleep(10)
     for slot in SLOTS:
         procs.append(compose(["run", "--rm", "-T", "--name", f"eval3p-{tag}-d{slot}",
                               "autoware"],
-                             env_for(slot, cfg, ref, out), wait=False))
+                             {**env_for(slot, cfg, ref, out), **extra}, wait=False))
         time.sleep(4)
 
     ready = wait_grounded(host_out, SLOTS)
@@ -122,6 +123,8 @@ def main() -> int:
     ap.add_argument("--scenario", default="eval3p",
                     help="simulator_scripts name: eval3p (3 submissions) or prelim "
                          "(2 submissions + 1 NPC, the official preliminary)")
+    ap.add_argument("--env", action="append", default=[], metavar="KEY=VALUE",
+                    help="extra environment for the autoware containers, e.g. LEAD_LIMIT=12")
     ap.add_argument("--cars", type=int, default=3,
                     help="how many Autoware instances to launch; prelim needs 2")
     args = ap.parse_args()
@@ -142,7 +145,7 @@ def main() -> int:
     for i in range(args.races):
         tag = f"eval3p{args.batch}-{args.name}-{i:02d}"
         print(f"[{time.strftime('%H:%M:%S')}] {tag}", flush=True)
-        rows = one_race(tag, cfg, ref)
+        rows = one_race(tag, cfg, ref, dict(kv.split("=", 1) for kv in args.env))
         all_rows += rows
         with OUT.open("a") as f:
             for r in rows:
