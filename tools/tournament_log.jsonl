@@ -7,3 +7,9 @@
 {"tag": "tourney-02", "slot": 1, "config": "config_expA.yaml", "laps": [177.71278381347656, 63.25430679321289, 116.73048400878906, 114.81153869628906], "completed": 4, "elapsed": 473.71278381347656, "finished": false, "stalls": 5}
 {"tag": "tourney-02", "slot": 2, "config": "config.yaml", "laps": [196.13075256347656, 120.26354217529297], "completed": 3, "elapsed": 473.13075256347656, "finished": false, "stalls": 5}
 {"tag": "tourney-02", "slot": 3, "config": "config_csvmt_ramps.yaml", "laps": [66.39814758300781, 46.55574035644531, 46.6407585144043, 85.19781494140625, 88.4210433959961, 71.965087890625], "completed": 6, "elapsed": 405.3981475830078, "finished": true, "stalls": 5}
+{"tag": "tourney-03", "slot": 1, "config": "config.yaml", "laps": [], "completed": 0, "elapsed": null, "finished": false, "stalls": 4}
+{"tag": "tourney-03", "slot": 2, "config": "config_expB.yaml", "laps": [200.26979064941406, 62.58916473388672, 64.87398529052734, 71.28546142578125, 48.14107894897461], "completed": 5, "elapsed": 473.26979064941406, "finished": false, "stalls": 5}
+{"tag": "tourney-03", "slot": 3, "config": "config_expC.yaml", "laps": [67.6324691772461, 77.87184143066406], "completed": 2, "elapsed": 473.6324691772461, "finished": false, "stalls": 5}
+{"tag": "tourney-04", "slot": 1, "config": "config_horizon.yaml", "laps": [223.02699279785156, 148.82960510253906], "completed": 2, "elapsed": 473.02699279785156, "finished": false, "stalls": 5}
+{"tag": "tourney-04", "slot": 2, "config": "config_qtime.yaml", "laps": [260.1632080078125], "completed": 2, "elapsed": 473.1632080078125, "finished": false, "stalls": 5}
+{"tag": "tourney-04", "slot": 3, "config": "config.yaml", "laps": [91.65426635742188, 60.608741760253906, 127.99429321289062, 93.50824737548828], "completed": 5, "elapsed": 472.6542663574219, "finished": false, "stalls": 5}
