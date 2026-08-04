@@ -82,8 +82,8 @@ def one_round(tag: str, entrants: list[str]) -> list[dict]:
 
     # 420 s rather than the 240 s default: three Autoware instances plus AWSIM never all
     # reported ready inside 240, and with sync start an unready car begins uncontrolled.
-    if wait_grounded(host, SLOTS, timeout=420) < len(SLOTS):
-        print("  warning: not every car reported ready", flush=True)
+    if wait_grounded(host, SLOTS[:1], timeout=90) < 1:
+        print("  warning: no car reported ready inside 90 s", flush=True)
     request_start()
 
     deadline = time.time() + WALL

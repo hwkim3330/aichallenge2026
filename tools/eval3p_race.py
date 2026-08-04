@@ -131,8 +131,10 @@ def one_race_per_slot(tag: str, configs: list[str], ref: str,
                               "autoware"],
                              {**env_for(slot, cfg, ref, out), **extra}, wait=False))
         time.sleep(8)
-    if wait_grounded(host_out, SLOTS, timeout=420) < len(SLOTS):
-        print("  warning: not every car reported ready", flush=True)
+    # Only the first car. Waiting for all of them is a deadlock, and the wait is paid by
+    # whoever is already sitting on the grid.
+    if wait_grounded(host_out, SLOTS[:1], timeout=90) < 1:
+        print("  warning: no car reported ready inside 90 s", flush=True)
     request_start()
     deadline = time.time() + WALL
     while time.time() < deadline:
