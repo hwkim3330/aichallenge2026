@@ -160,7 +160,12 @@ def one_race_per_slot(tag: str, configs: list[str], ref: str,
         rows.append(dict(tag=tag, slot=slot, config=cfg, laps=o["laps"],
                          completed=o["completed"], elapsed=o["elapsed"],
                          finished=o["finished"],
-                         stalls=len(re.findall(r"STALL ANATOMY", text))))
+                         stalls=len(re.findall(r"STALL ANATOMY", text)),
+                         # the summary reads these; omitting them crashed the per-slot path
+                         lap_peaks=[float(x) for x in re.findall(
+                             r"lap peak \|e_y\|: ([\d.]+) m at wp=\d+", text)],
+                         peak_wps=[int(x) for x in re.findall(
+                             r"lap peak \|e_y\|: [\d.]+ m at wp=(\d+)", text)]))
     return rows
 
 
