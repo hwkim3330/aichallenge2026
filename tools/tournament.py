@@ -5,8 +5,10 @@ The idea is the user's: there are about twenty config variants in the tree, seve
 known to drive well, so put them against each other under competition rules and let the
 survivors define the champion instead of arguing over one parameter at a time.
 
-Scenario is screen3 (three cars, collisions off, handicap off, 480 s). Collisions off is not
-a shortcut -- evolve.py's docstring records why: with contact on, a bad challenger becomes a
+Scenario is arena3 (three cars, collisions off, handicap ON, lidar ON, 480 s) -- screen3 with
+the two flags the official RaceConfig sets, because screen3 turns the lidar off and that
+silently removes lidar_guard, under which the eval-verified config takes 310.9 s for one lap.
+Collisions off is not a shortcut -- evolve.py's docstring records why: with contact on, a bad challenger becomes a
 parked obstacle and destroys the OTHER cars' measurements, three generations were lost that
 way, and the official three-vehicle RaceConfig has collisions off too. So one run yields
 three independent measurements.
@@ -67,7 +69,7 @@ def one_round(tag: str, entrants: list[str]) -> list[dict]:
     host = ROOT / "output" / tag
     sweep()
     env0 = dict(env_for(SLOTS[0], entrants[0], "ref_vel.yaml", out))
-    env0.update(ROS_DOMAIN_ID="0", SIM_MODE="screen3", LOG_DIR=out)
+    env0.update(ROS_DOMAIN_ID="0", SIM_MODE="arena3", LOG_DIR=out)
     procs = [compose(["run", "--rm", "-T", "--name", f"tourney-sim-{tag}",
                       "simulator"], env0, wait=False)]
     time.sleep(10)
