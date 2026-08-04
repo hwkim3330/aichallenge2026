@@ -29,6 +29,14 @@ class TinyLidarNetNode(Node):
         self.declare_parameter('model.ckpt_path', '')
         self.declare_parameter('max_range', 30.0)
         self.declare_parameter('acceleration', 0.1)
+        # The network's second head is an acceleration, and this node used to publish only
+        # that, leaving AckermannControlCommand.longitudinal.speed at its default 0.0. The
+        # vehicle follows speed, so the car never moved: measured live at 20 Hz with
+        # steering alive at -0.216 rad, speed 0.0, and longitudinal_velocity 0.0 throughout.
+        # Zero laps, and it was read as the model having failed to learn speed.
+        # Integrate the commanded acceleration into a speed target instead.
+        self.declare_parameter('v_max', 8.33)      # 30 km/h, the reference profile's ceiling
+        self.declare_parameter('accel_scale', 1.0)
         self.declare_parameter('control_mode', 'ai')
         self.declare_parameter('debug', False)
 
@@ -39,6 +47,10 @@ class TinyLidarNetNode(Node):
         ckpt_path = self.get_parameter('model.ckpt_path').value
         max_range = self.get_parameter('max_range').value
         acceleration = self.get_parameter('acceleration').value
+        self._v_max = float(self.get_parameter('v_max').value)
+        self._accel_scale = float(self.get_parameter('accel_scale').value)
+        self._target_v = 0.0
+        self._last_t = None
         control_mode = self.get_parameter('control_mode').value
         
         self.debug = self.get_parameter('debug').value
@@ -101,6 +113,12 @@ class TinyLidarNetNode(Node):
         cmd = AckermannControlCommand()
         cmd.stamp = self.get_clock().now().to_msg()
         cmd.longitudinal.acceleration = float(accel)
+        now_s = self.get_clock().now().nanoseconds * 1e-9
+        dt = 0.05 if self._last_t is None else min(max(now_s - self._last_t, 0.0), 0.2)
+        self._last_t = now_s
+        self._target_v = min(max(self._target_v + float(accel) * self._accel_scale * dt,
+                                 0.0), self._v_max)
+        cmd.longitudinal.speed = float(self._target_v)
         cmd.lateral.steering_tire_angle = float(steer)
         self.pub_control.publish(cmd)
 

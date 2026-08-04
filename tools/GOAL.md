@@ -2326,3 +2326,57 @@ XML 주석에 `--` 를 넣어 파일을 깨뜨렸다(이 세션 두 번째 같�
 
 **제출물은 무변경이다.** `submit/aichallenge_submit.tar.gz`(8/2, 6/6, 278.23 s)에 어제·오늘의
 실험이 하나도 들어 있지 않다.
+
+
+## 2026-08-04 (정정, 가장 중요) — AI 트랙이 안 움직인 이유는 학습이 아니라 한 줄 누락이었다
+
+`tiny_lidar_net_controller_node.py` 가 명령을 만들 때
+
+```python
+cmd.longitudinal.acceleration = float(accel)
+cmd.lateral.steering_tire_angle = float(steer)
+```
+
+**`cmd.longitudinal.speed` 를 설정하지 않는다.** 기본값 0.0 이 그대로 차량에 간다. 차량은
+speed 를 따르므로 움직일 수 없다. MPC 는 speed 와 acceleration 을 둘 다 넣는다.
+
+`speed: 0.0` 을 보고 "네트워크가 속도를 못 배웠다" 고 쓴 것은 **틀렸다.** 증거:
+
+* 출력층은 정상이다 — `fc4_weight` (2,10) absmax 1.21, `fc4_bias` absmax 0.23, 0 이 아니다.
+* 조향은 살아 있었다(-0.216 rad).
+* **weights 파일 4 개의 출력층이 사실상 동일하다** — 어느 것을 써도 speed 필드가 비어 있으니
+  당연하다. 현재 파일은 `bak_pre_bc20260802` 와 md5 까지 같다(8/2 복원은 제대로 됐다).
+
+`GOAL.md` 의 "가속 타깃 97.6% 가 tanh 범위 밖" 은 별개 문제로 남지만 **속도 0 의 원인은
+아니었다.**
+
+### 고침: 가속을 적분해 속도 목표를 만든다
+
+```python
+self._target_v = clamp(self._target_v + accel * accel_scale * dt, 0, v_max)
+cmd.longitudinal.speed = self._target_v
+```
+
+`v_max` 기본 8.33 m/s(30 km/h, 기준 프로파일 상한), `accel_scale` 1.0. 측정 결과:
+
+```
+전:  nominal speed 0.0    control_cmd 트래픽 없음   vehicle 0.00 m/s   랩 0
+후:  nominal speed 8.33   control_cmd 19.8 Hz       vehicle 3.52 m/s
+```
+
+**AI 트랙이 처음으로 움직인다.** 복구 노드도 함께 붙었다(노드 2 개 확인) — 그룹 밖으로 옮긴
+변경이 작동한다.
+
+### 단, 아직 완주는 못 한다
+
+3.52 m/s 까지 올라간 뒤 0.10 m/s 로 떨어지고 랩 0, stuck 1 건. BC 모델이 조향을 충분히 배우지
+못해 벽에 걸리는 것으로 보인다. **"속도 0" → "달리지만 서툴다"** 로 올라온 단계다.
+
+남은 일:
+1. 조향 품질 — 재학습 또는 finetune. 데이터는 `solo6lidar` 주행이 더 필요하다(레이스 bag 은
+   68% 가 정지 프레임).
+2. 규칙이 허용하는 **휠 오도메트리를 입력에 추가** — 지금은 스캔만 쓴다. 속도 피드백이 있으면
+   적분 대신 직접 회귀가 가능하다.
+3. 그 다음에 AI vs 제출물 3 대 대결이 의미를 갖는다(지금은 AI 가 장애물 역할만 한다).
+
+**제출물은 여전히 무변경이다.**

@@ -13,6 +13,7 @@ from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import LaserScan
 from autoware_auto_control_msgs.msg import AckermannControlCommand
+from autoware_auto_vehicle_msgs.msg import VelocityReport
 
 
 class LidarGuard(Node):
@@ -42,6 +43,18 @@ class LidarGuard(Node):
         self.lead_limit = float(self.declare_parameter("lead_limit", 0.0).value)
         self.lead_halfangle = float(self.declare_parameter("lead_halfangle", 0.10).value)
         self.lead_gap = float(self.declare_parameter("lead_gap", 3.0).value)
+        # Range alone cannot tell a wall from a car: LEAD_LIMIT=12 with a pure distance test
+        # completed no laps, because anything within lead_gap dead ahead commands zero speed
+        # and in a hairpin the wall IS within 3 m. Closing rate separates them. A wall
+        # approaches at our own speed; a car doing 2.3 m/s while we do 8.3 approaches at 6.
+        # So yield only when the gap is shrinking clearly SLOWER than our speed.
+        self.lead_closing_frac = float(
+            self.declare_parameter("lead_closing_frac", 0.65).value)
+        self._lead_prev: Optional[tuple] = None
+        self._speed = 0.0
+        self.create_subscription(
+            VelocityReport, "/vehicle/status/velocity_status",
+            lambda m: setattr(self, "_speed", abs(float(m.longitudinal_velocity))), qos)
         self._scan: Optional[LaserScan] = None
         self._cmd: Optional[AckermannControlCommand] = None
         self.create_subscription(LaserScan, "/sensing/lidar/scan", self._scan_cb, qos)
@@ -88,7 +101,18 @@ class LidarGuard(Node):
                 out.longitudinal.acceleration = min(out.longitudinal.acceleration, 0.45)
             if self.lead_limit > 0.0:
                 lead = self._sector(self._scan, -self.lead_halfangle, self.lead_halfangle)
-                if lead < self.lead_limit:
+                now_s = self.get_clock().now().nanoseconds * 1e-9
+                closing = None
+                if self._lead_prev is not None:
+                    dt = now_s - self._lead_prev[1]
+                    if 0.01 < dt < 0.5:
+                        closing = (self._lead_prev[0] - lead) / dt
+                self._lead_prev = (lead, now_s)
+                # A wall closes at our own speed. Something ahead that is moving closes
+                # slower. Require both: near enough to matter, and not closing like a wall.
+                moving_ahead = (closing is not None and self._speed > 1.0
+                                and closing < self.lead_closing_frac * self._speed)
+                if lead < self.lead_limit and moving_ahead:
                     # Bleed speed off with the closing gap instead of arriving at full pace.
                     # Zero at lead_gap so the car settles behind rather than into.
                     allow = max(0.0, (lead - self.lead_gap)) * 0.75
