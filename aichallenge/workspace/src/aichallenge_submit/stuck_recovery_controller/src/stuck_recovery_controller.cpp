@@ -59,6 +59,15 @@ bool envFlag(const char * name)
 // reverse STRAIGHT for 4.0 s at -1.0, settle 0.5 s, and nothing else -- no cooldown, no creep, no yield
 // handling, no deep escape, no steering alternation. Ours diverged from it on every one of those points,
 // and the package README still describes the official behaviour, "直進で後退".
+// Official escape GEOMETRY with our multi-car handling kept. Separate from RECOVERY_OFFICIAL because
+// the official node has no yield handling, and in the scored three-car format two cars both commanding
+// about zero to avoid each other would never resume.
+bool straight4Mode()
+{
+  const char * v = std::getenv("RECOVERY_STRAIGHT4");
+  return v != nullptr && std::strcmp(v, "0") != 0 && *v != '\0';
+}
+
 bool officialMode()
 {
   const char * v = std::getenv("RECOVERY_OFFICIAL");
@@ -332,8 +341,10 @@ bool StuckRecoveryController::runRecovery(const rclcpp::Time & now)
     return false;
   }
 
-  const double reverse_duration =
-    deep_escape_mode_ ? kDeepReverseDurationSec : kReverseDurationSec;
+  static const bool kStraight4 = straight4Mode();
+  const double reverse_duration = kStraight4
+    ? kOfficialReverseDurationSec
+    : (deep_escape_mode_ ? kDeepReverseDurationSec : kReverseDurationSec);
   // Deep escape used to alternate only between +0.55 and -0.55 -- full lock both
   // ways. Measured 2026-08-02 in the npc1 condition: three stalls of 21-43 s where
   // every lidar sector read 0.05 m and the node was commanding full-lock reverse the
@@ -353,12 +364,19 @@ bool StuckRecoveryController::runRecovery(const rclcpp::Time & now)
   if (elapsed < reverse_duration) {
     publishGear(GearCommand::REVERSE);
     // AWSIM expects positive acceleration with reverse gear and negative target speed.
-    publishCommand(deep_escape_mode_ ? -2.0F : -1.5F, 1.0, escape_steering);
+    if (kStraight4) {
+      // Straight and slower, the upstream values: least clearance needed, and no tail swing into a
+      // wall that is 1.36 m away at the place this fires.
+      publishCommand(kOfficialReverseSpeed, 1.0, 0.0F);
+    } else {
+      publishCommand(deep_escape_mode_ ? -2.0F : -1.5F, 1.0, escape_steering);
+    }
     return true;
   }
 
   // STEP2. Shift to DRIVE and stop for kDriveSettleDurationSec.
-  if (elapsed < reverse_duration + kDriveSettleDurationSec) {
+  const double settle = kStraight4 ? kOfficialDriveSettleDurationSec : kDriveSettleDurationSec;
+  if (elapsed < reverse_duration + settle) {
     publishGear(GearCommand::DRIVE);
     publishCommand(0.0, 0.0);
     return true;
