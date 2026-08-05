@@ -55,6 +55,21 @@ bool envFlag(const char * name)
 // steering with opposite sign conventions. Reversing with the wheels turned swings the tail one way
 // and the nose the other, so which sign frees a jammed car is a question for measurement rather
 // than for assertion -- hence two directed modes instead of one.
+// Reproduce the upstream implementation exactly (upstream/agent/recovery-supervisor): detect for 1.0 s,
+// reverse STRAIGHT for 4.0 s at -1.0, settle 0.5 s, and nothing else -- no cooldown, no creep, no yield
+// handling, no deep escape, no steering alternation. Ours diverged from it on every one of those points,
+// and the package README still describes the official behaviour, "直進で後退".
+bool officialMode()
+{
+  const char * v = std::getenv("RECOVERY_OFFICIAL");
+  return v != nullptr && std::strcmp(v, "0") != 0 && *v != '\0';
+}
+
+constexpr double kOfficialStuckDurationSec = 1.0;
+constexpr double kOfficialReverseDurationSec = 4.0;
+constexpr double kOfficialDriveSettleDurationSec = 0.5;
+constexpr float kOfficialReverseSpeed = -1.0F;
+
 int directedEscapeMode()
 {
   const char * v = std::getenv("RECOVERY_DIRECTED");
@@ -149,6 +164,32 @@ void StuckRecoveryController::updateStuckDetection(
     forward_progress_start_time_.reset();
   }
 
+  static const bool kOfficial = officialMode();
+  // The official node has no yield handling, no cooldown and no escalation. In official mode the
+  // detector is only the upstream one: nominal asking for motion, velocity under threshold for
+  // kOfficialStuckDurationSec, then reverse.
+  if (kOfficial) {
+    if (!moving_observed_ || command.longitudinal.speed < kCommandSpeedThreshold ||
+      command.longitudinal.acceleration < kCommandAccelerationThreshold)
+    {
+      stuck_start_time_.reset();
+      return;
+    }
+    if (std::abs(velocity) <= kStuckSpeedThreshold) {
+      if (!stuck_start_time_.has_value()) {
+        stuck_start_time_ = now;
+      } else if ((now - stuck_start_time_.value()).seconds() >= kOfficialStuckDurationSec) {
+        stuck_start_time_.reset();
+        recovery_start_time_ = now;
+        creep_mode_ = false;
+        RCLCPP_INFO(get_logger(), "stuck detected (official): velocity=%.3f", velocity);
+      }
+    } else {
+      stuck_start_time_.reset();
+    }
+    return;
+  }
+
   // Mutual-yield deadlock check: runs regardless of what was commanded, as
   // long as we've moved at least once before. Two vehicles both commanding
   // ~0 to avoid each other otherwise never resumes on its own.
@@ -227,6 +268,25 @@ bool StuckRecoveryController::runRecovery(const rclcpp::Time & now)
   }
 
   const double elapsed = (now - recovery_start_time_.value()).seconds();
+
+  static const bool kOfficial = officialMode();
+  if (kOfficial) {
+    // STEP1 reverse straight, STEP2 settle in DRIVE, STEP3 resume. Steering is left at 0 by
+    // publishCommand's default, which is what the upstream node hardcodes.
+    if (elapsed < kOfficialReverseDurationSec) {
+      publishGear(GearCommand::REVERSE);
+      publishCommand(kOfficialReverseSpeed, 1.0);
+      return true;
+    }
+    if (elapsed < kOfficialReverseDurationSec + kOfficialDriveSettleDurationSec) {
+      publishGear(GearCommand::DRIVE);
+      publishCommand(0.0, 0.0);
+      return true;
+    }
+    publishGear(GearCommand::DRIVE);
+    recovery_start_time_.reset();
+    return false;
+  }
 
   if (creep_mode_) {
     // Nothing is physically blocking us in the yield-deadlock case, so just
