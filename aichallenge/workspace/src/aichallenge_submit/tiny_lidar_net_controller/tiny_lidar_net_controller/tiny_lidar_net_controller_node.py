@@ -58,6 +58,7 @@ class TinyLidarNetNode(Node):
         # Set TLN_DIRECT_SPEED=1 only with a checkpoint trained on the commanded
         # speed; the default keeps the acceleration convention the shipped weights use.
         self._direct_speed = os.environ.get("TLN_DIRECT_SPEED", "0") not in ("0", "false", "")
+        self._last_report = None
         self._target_v = 0.0
         self._last_t = None
         control_mode = self.get_parameter('control_mode').value
@@ -138,6 +139,16 @@ class TinyLidarNetNode(Node):
         cmd.longitudinal.speed = float(self._target_v)
         cmd.lateral.steering_tire_angle = float(steer)
         self.pub_control.publish(cmd)
+
+        # Report what the network actually asks for, once a second. Without this the node loads
+        # cleanly, completes zero laps and says nothing about why -- which is how the last drive test
+        # ended. The same lesson as the four dead flags found today: read the OUTPUT, not the config.
+        if self._last_report is None or now_s - self._last_report >= 1.0:
+            self._last_report = now_s
+            self.get_logger().info(
+                f"[tln] head=({float(accel):+.3f}, {float(steer):+.3f}) "
+                f"direct_speed={int(self._direct_speed)} v_max={self._v_max:.2f} "
+                f"cmd_speed={self._target_v:.2f} scan_min={float(ranges.min()):.2f}")
 
         # 4. Debug Logging
         if self.debug:
