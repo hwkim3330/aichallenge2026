@@ -62,6 +62,11 @@ export V2X_AVOIDANCE="${V2X_AVOIDANCE:-}"
 # Read by tiny_lidar_net_controller_node.py. With speed-trained weights this MUST be 1: the head's
 # slot 0 is a normalised speed, and the default convention integrates it as an acceleration instead.
 export TLN_DIRECT_SPEED="${TLN_DIRECT_SPEED:-}"
+# The zero-centred speed mapping. These MUST equal what training used; the node prints them in its
+# 1 Hz report so a mismatch is visible instead of just making the car drive at the wrong speed.
+export TLN_SPEED_MEAN="${TLN_SPEED_MEAN:-}"
+export TLN_SPEED_STD="${TLN_SPEED_STD:-}"
+export TLN_SPEED_K="${TLN_SPEED_K:-}"
 
 export ROS_DOMAIN_ID=$id
 

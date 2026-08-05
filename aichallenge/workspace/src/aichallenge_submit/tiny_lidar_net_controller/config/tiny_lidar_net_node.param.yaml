@@ -9,7 +9,11 @@
       ckpt_path: "/path/to/tinylidarnet_weights.npy"
 
     max_range: 30.0              # LiDARの最大レンジ（メートル）
-    control_mode: "fixed"          # "ai" または "fixed"
+    # "ai" uses the network's first head; "fixed" throws it away and publishes `acceleration`
+    # below as a constant. It was "fixed", which is why the node reported head0 = +0.600 exactly,
+    # unchanged across a complete retrain: 0.600 is the constant, not a prediction. Every speed
+    # target, mapping and retraining result was being discarded at this line.
+    control_mode: "ai"
     acceleration: 0.6            # 固定加速度コマンド mode:fixed の場合に使用
 
     debug: false

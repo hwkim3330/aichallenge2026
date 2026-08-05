@@ -47,6 +47,9 @@ x-autoware-base: &autoware-base
     - RECOVERY_OFFICIAL=${RECOVERY_OFFICIAL:-}
     - V2X_AVOIDANCE=${V2X_AVOIDANCE:-}
     - TLN_DIRECT_SPEED=${TLN_DIRECT_SPEED:-}
+    - TLN_SPEED_MEAN=${TLN_SPEED_MEAN:-}
+    - TLN_SPEED_STD=${TLN_SPEED_STD:-}
+    - TLN_SPEED_K=${TLN_SPEED_K:-}
     - ROSBAG=${ROSBAG:-}
   volumes:
     - ./output:${OUTPUT_ROOT:-/output}
