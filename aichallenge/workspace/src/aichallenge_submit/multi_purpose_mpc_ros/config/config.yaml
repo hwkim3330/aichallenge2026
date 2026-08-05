@@ -46,6 +46,14 @@ reference_path:
   # This one keeps curvature at the official line's own 0.236, so it asks nothing
   # of grip that the 47.28 s baseline does not already survive cleanly.
   csv_path: "env/final_ver3/traj_top36_blend45.csv"
+  # Continuous per-waypoint speed profile (the CSV branch). The 2.55 m/s pin
+  # that killed this path was a double km/h->m/s conversion in
+  # mpc_controller.py (fixed): mpc_cfg.v_max is already m/s.
+  # Profile: generate_min_time_profile.py on the blend45 line,
+  # a_max 0.6 (vehicle real ~0.64), a_min -1.4, proven x1.10 flat sections + a_min-0.9 braking ramps at transitions only, v_max 40 km/h.
+  # Corner speed 7.52 m/s = proven x1.10 corner pace; only adds ramped straights.
+  use_csv_speed_profile: true
+  speed_profile_csv_path: "env/final_ver3/traj_blend45_s110L_ramps.csv"
   resolution: 0.6
   smoothing_distance: 2  # tested 5 -> much worse (76.59s vs ~50s baseline), reverted
   max_width: 3.0  # testing: narrower corridor to see if it forces tighter tracking through wp82-88/129-134
