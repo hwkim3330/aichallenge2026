@@ -5,7 +5,34 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 import hydra
 from omegaconf import DictConfig, OmegaConf
-from torch.utils.tensorboard import SummaryWriter
+# TensorBoard is optional. On this host it fails to import through a protobuf version mismatch
+# (google.protobuf has no runtime_version), and scalar logging is not worth pinning system packages for.
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except Exception as _tb_err:  # noqa: BLE001
+    print(f"[warn] tensorboard unavailable ({type(_tb_err).__name__}); scalar logging disabled")
+
+    class SummaryWriter:  # minimal stand-in with the methods train.py uses
+        def __init__(self, *a, **k):
+            pass
+
+        def add_scalar(self, *a, **k):
+            pass
+
+        def add_scalars(self, *a, **k):
+            pass
+
+        def flush(self):
+            pass
+
+        def close(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
 from datetime import datetime
 
 from lib.model import TinyLidarNet, TinyLidarNetSmall

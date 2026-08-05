@@ -36,7 +36,11 @@ class TinyLidarNetNode(Node):
         # steering alive at -0.216 rad, speed 0.0, and longitudinal_velocity 0.0 throughout.
         # Zero laps, and it was read as the model having failed to learn speed.
         # Integrate the commanded acceleration into a speed target instead.
-        self.declare_parameter('v_max', 8.33)      # 30 km/h, the reference profile's ceiling
+        # 9.2 m/s, not 8.33. The expert demonstrations recorded from clean MPC runs command up to
+        # 9.167 m/s and 48.4 percent of their frames exceed 8.33, so normalising against 8.33 would
+        # squash nearly half the target range against the top of the tanh and teach the network that
+        # every fast section is the same speed. Must equal TLN_SPEED_VMAX used when training.
+        self.declare_parameter('v_max', 9.2)
         self.declare_parameter('accel_scale', 1.0)
         self.declare_parameter('control_mode', 'ai')
         self.declare_parameter('debug', False)

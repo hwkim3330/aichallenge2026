@@ -59,6 +59,9 @@ export RECOVERY_OFFICIAL="${RECOVERY_OFFICIAL:-}"
 # Car-to-car avoidance from V2X opponent positions. Read by mpc_controller.py but never exported
 # here or listed in docker-compose.yml, so every attempt to enable it so far was a no-op.
 export V2X_AVOIDANCE="${V2X_AVOIDANCE:-}"
+# Read by tiny_lidar_net_controller_node.py. With speed-trained weights this MUST be 1: the head's
+# slot 0 is a normalised speed, and the default convention integrates it as an acceleration instead.
+export TLN_DIRECT_SPEED="${TLN_DIRECT_SPEED:-}"
 
 export ROS_DOMAIN_ID=$id
 
