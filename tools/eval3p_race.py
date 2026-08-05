@@ -115,7 +115,8 @@ def one_race(tag: str, cfg: str = "config.yaml",
 def one_race_per_slot(tag: str, configs: list[str], ref: str,
                       extra: dict | None = None,
                       refs: list[str] | None = None,
-                      methods: list[str] | None = None) -> list[dict]:
+                      methods: list[str] | None = None,
+                      slot_env: dict | None = None) -> list[dict]:
     """A race where each slot runs a different config, for head-to-head comparison."""
     from evolve import link_installed
     out = f"/output/{tag}"
@@ -134,6 +135,8 @@ def one_race_per_slot(tag: str, configs: list[str], ref: str,
         env = {**env_for(slot, cfg, rv, out), **extra}
         if methods:
             env["CONTROL_METHOD"] = methods[i]
+        if slot_env and slot in slot_env:
+            env.update(slot_env[slot])
         procs.append(compose(["run", "--rm", "-T", "--name", f"eval3p-{tag}-d{slot}",
                               "autoware"], env, wait=False))
         time.sleep(8)
@@ -187,6 +190,12 @@ def main() -> int:
     ap.add_argument("--set-ref", metavar="SECTION=VALUE",
                     help="ref_vel section override, e.g. s1=20.0")
     ap.add_argument("--name", default="base")
+    ap.add_argument("--slot-env", action="append", default=[], metavar="SLOT:VAR=VAL",
+                    help="environment for one slot only, e.g. 2:GUARD_FRONT_LIMIT=6.0. Repeatable. "
+                         "Needed because two identical controllers facing each other mirror every "
+                         "avoidance decision and neither yields: one measured prelim race had both cars "
+                         "in a permanent recovery loop, 51 and 46 stuck detections, meeting again every "
+                         "6-10 s. The real opponent is another team's car, not a copy of ours.")
     ap.add_argument("--methods",
                     help="comma-separated CONTROL_METHOD per slot, e.g. mpc,mpc,tiny_lidar_net; "
                          "NOT rotated, since the AI car is a fixed role rather than a candidate")
@@ -220,7 +229,7 @@ def main() -> int:
     for i in range(args.races):
         tag = f"eval3p{args.batch}-{args.name}-{i:02d}"
         print(f"[{time.strftime('%H:%M:%S')}] {tag}", flush=True)
-        if args.configs or args.refs or args.methods:
+        if args.configs or args.refs or args.methods or args.slot_env:
             per = ([c.strip() for c in args.configs.split(",")] if args.configs
                    else [cfg] * len(SLOTS))
             # Rotate which config sits in which slot. Slot position measurably changes the
@@ -231,8 +240,13 @@ def main() -> int:
                 refs = [r.strip() for r in args.refs.split(",")]
                 refs = refs[i % len(refs):] + refs[:i % len(refs)]
             methods = [m.strip() for m in args.methods.split(",")] if args.methods else None
+            slot_env: dict[int, dict[str, str]] = {}
+            for item in args.slot_env:
+                slot_s, kv = item.split(":", 1)
+                slot_env.setdefault(int(slot_s), {}).update([kv.split("=", 1)])
             rows = one_race_per_slot(tag, per, ref,
-                                     dict(kv.split("=", 1) for kv in args.env), refs, methods)
+                                     dict(kv.split("=", 1) for kv in args.env), refs, methods,
+                                     slot_env)
         else:
             rows = one_race(tag, cfg, ref, dict(kv.split("=", 1) for kv in args.env))
         all_rows += rows

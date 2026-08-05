@@ -50,6 +50,15 @@ export RECOVERY_CREEP_ESCALATION="${RECOVERY_CREEP_ESCALATION:-}"
 # 0 or unset keeps the blind alternation the verified submission uses; 1 and 2 aim the first
 # escape burst from the latched nominal steering with opposite sign conventions.
 export RECOVERY_DIRECTED="${RECOVERY_DIRECTED:-}"
+# Escape geometry and the forced trigger. Both are read with getenv by
+# stuck_recovery_controller, but a variable absent from docker-compose.yml never reaches the
+# container at all -- setting it would have measured nothing and looked like the fix not working.
+export RECOVERY_STRAIGHT4="${RECOVERY_STRAIGHT4:-}"
+export RECOVERY_FORCE="${RECOVERY_FORCE:-}"
+export RECOVERY_OFFICIAL="${RECOVERY_OFFICIAL:-}"
+# Car-to-car avoidance from V2X opponent positions. Read by mpc_controller.py but never exported
+# here or listed in docker-compose.yml, so every attempt to enable it so far was a no-op.
+export V2X_AVOIDANCE="${V2X_AVOIDANCE:-}"
 
 export ROS_DOMAIN_ID=$id
 

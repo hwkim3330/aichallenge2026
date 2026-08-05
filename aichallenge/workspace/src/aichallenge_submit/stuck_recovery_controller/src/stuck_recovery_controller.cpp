@@ -19,6 +19,13 @@ constexpr float kCommandAccelerationThreshold = 0.3;
 constexpr float kMovingSpeedThreshold = 0.5;
 constexpr float kRecoveryResetSpeedThreshold = 2.0;
 constexpr double kRecoveryResetDurationSec = 1.0;
+// A second, easier reset. Measured in a two-car prelim race: the attempt counter reached 28 on one car and
+// 23 on the other, because the reset above needs 2.0 m/s sustained for 1.0 s and a car trading blows with
+// another never gets there. Past attempt 3 deep_escape_mode_ latches on permanently, so every escape becomes
+// full lock -- the worst choice in the 1.36 m gap where these wedges happen, and something the upstream node
+// does not do at all (it has no deep escape). Modest progress is enough to prove the last escape worked.
+constexpr float kAttemptResetSpeedThreshold = 0.6F;
+constexpr double kAttemptResetDurationSec = 2.0;
 constexpr double kReverseDurationSec = 1.8;
 constexpr double kDeepReverseDurationSec = 2.6;
 constexpr double kRecoveryCooldownSec = 1.2;
@@ -182,8 +189,27 @@ void StuckRecoveryController::updateStuckDetection(
     } else {
       forward_progress_start_time_.reset();
     }
+    // Easier reset: sustained modest motion clears the escalation, so a car that is making progress
+    // again does not keep escaping at full lock on the strength of attempts it already recovered from.
+    if (velocity >= kAttemptResetSpeedThreshold) {
+      if (!attempt_reset_start_time_.has_value()) {
+        attempt_reset_start_time_ = now;
+      } else if ((now - attempt_reset_start_time_.value()).seconds() >= kAttemptResetDurationSec) {
+        if (recovery_attempts_ > 0) {
+          RCLCPP_INFO(
+            get_logger(), "progress for %.1f s at >= %.1f m/s: clearing %d attempts",
+            kAttemptResetDurationSec, kAttemptResetSpeedThreshold, recovery_attempts_);
+        }
+        recovery_attempts_ = 0;
+        deep_escape_mode_ = false;
+        attempt_reset_start_time_.reset();
+      }
+    } else {
+      attempt_reset_start_time_.reset();
+    }
   } else {
     forward_progress_start_time_.reset();
+    attempt_reset_start_time_.reset();
   }
 
   static const bool kForce = forceMode();

@@ -46,6 +46,9 @@ private:
   // ordinary detector needs the command to request motion, which a wedged car's infeasible QP will not
   // do, so it spent most of a measured 73 s standstill waiting for permission.
   std::optional<rclcpp::Time> force_stuck_start_time_;
+  // Sustained modest progress, used to clear the escalation counter that otherwise latches
+  // deep_escape_mode_ on for the rest of the race.
+  std::optional<rclcpp::Time> attempt_reset_start_time_;
   bool creep_mode_{false};
   // Do not repeatedly re-trigger creep while the vehicle remains stationary.
   // A new yield recovery is allowed only after real forward movement resumes.
