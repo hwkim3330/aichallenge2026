@@ -2,6 +2,8 @@ import logging
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
+import os
+
 import numpy as np
 from torch.utils.data import Dataset, ConcatDataset
 
@@ -45,6 +47,27 @@ class ScanControlSequenceDataset(Dataset):
         except FileNotFoundError as e:
             raise FileNotFoundError(f"Missing required .npy files in {self.seq_dir}: {e}")
 
+        # Optionally target the COMMANDED SPEED in slot 0 rather than the commanded acceleration.
+        # The extractor's own note explains why acceleration is the harder target: it "is unlearnable
+        # without the current speed", and the input is the scan alone.
+        #
+        # Normalised to [-1, 1] because the head is a tanh; the node inverts exactly this with
+        # (head + 1) / 2 * v_max, so its v_max parameter must equal TLN_SPEED_VMAX.
+        self.speed_target = os.environ.get("TLN_SPEED_TARGET", "0") not in ("0", "false", "")
+        self.v_max = float(os.environ.get("TLN_SPEED_VMAX", "8.33"))
+        if self.speed_target:
+            f = self.seq_dir / "cmd_speeds.npy"
+            if not f.exists():
+                raise FileNotFoundError(
+                    f"TLN_SPEED_TARGET is set but {f} is missing. Re-extract with a build of "
+                    f"extract_data_from_bag.py that saves cmd_speeds.npy; bags extracted before "
+                    f"that change carry only the acceleration target.")
+            self.cmd_speeds = np.load(f)
+            if len(self.cmd_speeds) != len(self.scans):
+                raise ValueError(
+                    f"cmd_speeds length {len(self.cmd_speeds)} != scans {len(self.scans)} in "
+                    f"{self.seq_dir}")
+
         # Validate data consistency
         n_samples = len(self.scans)
         if not (len(self.steers) == n_samples and len(self.accels) == n_samples):
@@ -74,11 +97,18 @@ class ScanControlSequenceDataset(Dataset):
         # Ensure data is float32 for PyTorch compatibility
         scan = self.scans[idx].astype(np.float32)
         
-        accel = np.float32(self.accels[idx])
         steer = np.float32(self.steers[idx])
-        
-        # Target vector construction: [Acceleration, Steering]
-        target = np.array([accel, steer], dtype=np.float32)
+        if self.speed_target:
+            # Slot 0 becomes the commanded speed, normalised to the tanh range.
+            first = np.float32(np.clip(
+                2.0 * float(self.cmd_speeds[idx]) / self.v_max - 1.0, -1.0, 1.0))
+        else:
+            first = np.float32(self.accels[idx])
+
+        # Target vector: [acceleration or normalised speed, steering]. The order is load-bearing --
+        # the node unpacks the head as (first, steer) -- so only slot 0's meaning changes, never its
+        # position.
+        target = np.array([first, steer], dtype=np.float32)
         
         return scan, target
 

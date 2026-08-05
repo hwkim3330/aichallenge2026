@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import time
 import numpy as np
 
@@ -49,6 +50,10 @@ class TinyLidarNetNode(Node):
         acceleration = self.get_parameter('acceleration').value
         self._v_max = float(self.get_parameter('v_max').value)
         self._accel_scale = float(self.get_parameter('accel_scale').value)
+
+        # Set TLN_DIRECT_SPEED=1 only with a checkpoint trained on the commanded
+        # speed; the default keeps the acceleration convention the shipped weights use.
+        self._direct_speed = os.environ.get("TLN_DIRECT_SPEED", "0") not in ("0", "false", "")
         self._target_v = 0.0
         self._last_t = None
         control_mode = self.get_parameter('control_mode').value
@@ -116,8 +121,16 @@ class TinyLidarNetNode(Node):
         now_s = self.get_clock().now().nanoseconds * 1e-9
         dt = 0.05 if self._last_t is None else min(max(now_s - self._last_t, 0.0), 0.2)
         self._last_t = now_s
-        self._target_v = min(max(self._target_v + float(accel) * self._accel_scale * dt,
-                                 0.0), self._v_max)
+# Two target conventions, chosen explicitly. A checkpoint trained against one is
+        # meaningless under the other, and the failure would look like bad driving rather than a
+        # configuration mismatch, so it is never inferred.
+        if self._direct_speed:
+            # head[0] is a normalised speed. No integration, so no accumulated bias from a
+            # quantity the 750-point scan cannot determine on its own.
+            self._target_v = min(max((float(accel) + 1.0) * 0.5 * self._v_max, 0.0), self._v_max)
+        else:
+            self._target_v = min(
+                max(self._target_v + float(accel) * self._accel_scale * dt, 0.0), self._v_max)
         cmd.longitudinal.speed = float(self._target_v)
         cmd.lateral.steering_tire_angle = float(steer)
         self.pub_control.publish(cmd)

@@ -198,7 +198,11 @@ def process_bag(
                         if conn.msgtype == config.control_msg_type:
                             accel = msg.longitudinal.acceleration
                             steer = msg.lateral.steering_tire_angle
-                            cmd_data.append([steer, accel])
+                            # The commanded speed, kept as a third column. Regressing it removes
+                            # the integration the node would otherwise have to do on an
+                            # acceleration that the scan alone cannot determine -- see this
+                            # file's own note on the speed topic below.
+                            cmd_data.append([steer, accel, msg.longitudinal.speed])
                             cmd_times.append(timestamp)
                     
                     # Extract LiDAR Scan
@@ -261,6 +265,7 @@ def process_bag(
     synced_cmds = np_cmd_data[indices]
     synced_steers = synced_cmds[:, 0]
     synced_accels = synced_cmds[:, 1]
+    synced_cmd_speeds = synced_cmds[:, 2]
 
     # Measured speed, synchronised onto the same scan timestamps.
     if speed_data:
@@ -308,6 +313,10 @@ def process_bag(
     np.save(out_dir / 'scans.npy', np_scan_data)
     np.save(out_dir / 'steers.npy', synced_steers)
     np.save(out_dir / 'accelerations.npy', synced_accels)
+    # The commanded speed as its own target file. Kept separate from speeds.npy, which holds the
+    # MEASURED speed: the two differ by the vehicle's tracking lag, and training on the measured
+    # value would teach the network to reproduce the lag rather than the intent.
+    np.save(out_dir / 'cmd_speeds.npy', synced_cmd_speeds)
     if synced_speeds is not None:
         np.save(out_dir / 'speeds.npy', synced_speeds)
     
