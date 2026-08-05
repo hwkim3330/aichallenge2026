@@ -191,7 +191,8 @@ void StuckRecoveryController::updateStuckDetection(
     }
     // Easier reset: sustained modest motion clears the escalation, so a car that is making progress
     // again does not keep escaping at full lock on the strength of attempts it already recovered from.
-    if (velocity >= kAttemptResetSpeedThreshold) {
+    static const bool kAttemptReset = envFlag("RECOVERY_ATTEMPT_RESET");
+    if (kAttemptReset && velocity >= kAttemptResetSpeedThreshold) {
       if (!attempt_reset_start_time_.has_value()) {
         attempt_reset_start_time_ = now;
       } else if ((now - attempt_reset_start_time_.value()).seconds() >= kAttemptResetDurationSec) {
