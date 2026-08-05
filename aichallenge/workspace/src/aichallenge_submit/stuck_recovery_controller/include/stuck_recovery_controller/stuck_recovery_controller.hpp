@@ -49,6 +49,12 @@ private:
   // Alternate the escape side on consecutive physical recoveries.  This is
   // useful when the vehicle is boxed in by the car immediately ahead.
   float recovery_steering_{0.45F};
+  // Last nominal steering command with a magnitude worth trusting, latched while the car was
+  // still under nominal control. Blind alternation wastes half of all escape attempts steering
+  // into the obstruction; the MPC steers away from what it is being pushed towards, so this
+  // points at the free side. Cannot be sampled at detection time, because an infeasible QP
+  // commands near-zero steering and that is precisely when stalls occur.
+  float last_meaningful_steering_{0.0F};
   int recovery_attempts_{0};
   bool deep_escape_mode_{false};
   // Consecutive yield creeps that did not restore motion. A jammed car looks

@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <string>
@@ -50,6 +51,25 @@ bool envFlag(const char * name)
   return !(value.empty() || value == "0" || value == "false");
 }
 
+// 0 keeps the verified blind alternation; 1 and 2 seed the first escape from the latched nominal
+// steering with opposite sign conventions. Reversing with the wheels turned swings the tail one way
+// and the nose the other, so which sign frees a jammed car is a question for measurement rather
+// than for assertion -- hence two directed modes instead of one.
+int directedEscapeMode()
+{
+  const char * v = std::getenv("RECOVERY_DIRECTED");
+  if (v == nullptr) {
+    return 0;
+  }
+  if (std::strcmp(v, "1") == 0) {
+    return 1;
+  }
+  if (std::strcmp(v, "2") == 0) {
+    return 2;
+  }
+  return 0;
+}
+
 }  // namespace
 
 StuckRecoveryController::StuckRecoveryController() : Node("stuck_recovery_controller")
@@ -90,6 +110,12 @@ void StuckRecoveryController::onNominalCommand(
     return;
   }
   control_pub_->publish(*msg);
+  // Latch the steering direction the MPC was asking for while it still had one, for the escape
+  // to aim by. Only while not in recovery, so the recovery's own commands never feed this back.
+  constexpr float kMeaningfulSteering = 0.05F;
+  if (std::abs(msg->lateral.steering_tire_angle) > kMeaningfulSteering) {
+    last_meaningful_steering_ = msg->lateral.steering_tire_angle;
+  }
   updateStuckDetection(*msg, now);
 }
 
@@ -170,10 +196,24 @@ void StuckRecoveryController::updateStuckDetection(
       creep_mode_ = false;
       ++recovery_attempts_;
       deep_escape_mode_ = recovery_attempts_ >= 3;
-      recovery_steering_ = -recovery_steering_;
+      static const int kDirected = directedEscapeMode();
+      const float mag = std::abs(recovery_steering_);
+      if (kDirected != 0 && recovery_attempts_ == 1 &&
+        std::abs(last_meaningful_steering_) > 0.0F)
+      {
+        // First attempt of this stall: aim it rather than guess. Later attempts still alternate,
+        // so a seed with the wrong sign costs one burst instead of repeating forever.
+        const float sign = last_meaningful_steering_ >= 0.0F ? 1.0F : -1.0F;
+        recovery_steering_ = (kDirected == 1 ? sign : -sign) * mag;
+      } else {
+        recovery_steering_ = -recovery_steering_;
+      }
       RCLCPP_INFO(
-        get_logger(), "stuck detected: velocity=%.3f attempt=%d deep_escape=%s",
-        velocity, recovery_attempts_, deep_escape_mode_ ? "true" : "false");
+        get_logger(),
+        "stuck detected: velocity=%.3f attempt=%d deep_escape=%s directed=%d "
+        "nominal_steer=%.3f escape_steer=%.3f",
+        velocity, recovery_attempts_, deep_escape_mode_ ? "true" : "false", kDirected,
+        last_meaningful_steering_, recovery_steering_);
     }
   } else {
     stuck_start_time_.reset();
