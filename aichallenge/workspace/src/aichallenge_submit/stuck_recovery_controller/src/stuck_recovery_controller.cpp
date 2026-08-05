@@ -62,6 +62,19 @@ bool envFlag(const char * name)
 // Official escape GEOMETRY with our multi-car handling kept. Separate from RECOVERY_OFFICIAL because
 // the official node has no yield handling, and in the scored three-car format two cars both commanding
 // about zero to avoid each other would never resume.
+// Recover a stationary car without waiting for the nominal command to ask for motion. Measured need:
+// during a 73 s standstill the published command averaged 0.48 m/s, under the 1.0 gate, so recovery fired
+// once every 9.1 s against a 3.2 s cycle. The upstream supervisor has the same gate, so this is a flaw
+// both share rather than a divergence.
+bool forceMode()
+{
+  const char * v = std::getenv("RECOVERY_FORCE");
+  return v != nullptr && std::strcmp(v, "0") != 0 && *v != '\0';
+}
+
+constexpr double kForceStuckDurationSec = 1.2;
+constexpr double kForceCooldownSec = 0.4;
+
 bool straight4Mode()
 {
   const char * v = std::getenv("RECOVERY_STRAIGHT4");
@@ -171,6 +184,38 @@ void StuckRecoveryController::updateStuckDetection(
     }
   } else {
     forward_progress_start_time_.reset();
+  }
+
+  static const bool kForce = forceMode();
+  if (kForce && moving_observed_ && !recovery_start_time_.has_value() &&
+    std::abs(velocity) <= kStuckSpeedThreshold)
+  {
+    if (!force_stuck_start_time_.has_value()) {
+      force_stuck_start_time_ = now;
+    } else if ((now - force_stuck_start_time_.value()).seconds() >= kForceStuckDurationSec) {
+      // The cooldown exists to stop a MOVING car thrashing between nominal and recovery, which cannot
+      // happen to one sitting still, so only a short remainder of it is honoured here.
+      const bool cooling = recovery_cooldown_until_.has_value() &&
+        now < recovery_cooldown_until_.value() &&
+        (recovery_cooldown_until_.value() - now).seconds() > kForceCooldownSec;
+      if (!cooling) {
+        force_stuck_start_time_.reset();
+        stuck_start_time_.reset();
+        yield_start_time_.reset();
+        creep_mode_ = false;
+        recovery_start_time_ = now;
+        ++recovery_attempts_;
+        deep_escape_mode_ = recovery_attempts_ >= 3;
+        recovery_steering_ = -recovery_steering_;
+        RCLCPP_INFO(
+          get_logger(),
+          "stuck detected (forced, nominal gate bypassed): velocity=%.3f attempt=%d",
+          velocity, recovery_attempts_);
+        return;
+      }
+    }
+  } else if (std::abs(velocity) > kStuckSpeedThreshold) {
+    force_stuck_start_time_.reset();
   }
 
   static const bool kOfficial = officialMode();

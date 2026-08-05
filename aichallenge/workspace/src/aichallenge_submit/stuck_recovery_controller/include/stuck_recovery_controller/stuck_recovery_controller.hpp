@@ -42,6 +42,10 @@ private:
   std::optional<rclcpp::Time> recovery_cooldown_until_;
   std::optional<rclcpp::Time> forward_progress_start_time_;
   std::optional<rclcpp::Time> yield_start_time_;
+  // How long the vehicle has been stationary irrespective of what the nominal command asks for. The
+  // ordinary detector needs the command to request motion, which a wedged car's infeasible QP will not
+  // do, so it spent most of a measured 73 s standstill waiting for permission.
+  std::optional<rclcpp::Time> force_stuck_start_time_;
   bool creep_mode_{false};
   // Do not repeatedly re-trigger creep while the vehicle remains stationary.
   // A new yield recovery is allowed only after real forward movement resumes.
