@@ -101,8 +101,23 @@ constexpr float kOfficialReverseSpeed = -1.0F;
 
 int directedEscapeMode()
 {
+  // Default 2, measured on the official evaluation path with only this convention varied:
+  //   0 (blind alternation)  n=4  mean 324.05 s  12 wall penalties
+  //   1                      n=3  mean 354.99 s  12, and one run at 499.04 s, past the 480 s cap
+  //   2                      n=6  mean 287.08 s   7, three runs clean at 268.5 s
+  // So the escape steering takes the OPPOSITE sign to the latched nominal steering, which is also what
+  // the kinematics say: turning the wheels while reversing sends the rear of the car the other way.
+  // Convention 1 is worse than doing nothing, so guessing the sign would have been a coin flip on a
+  // change that can make things worse rather than merely fail to help.
+  //
+  // This has to be the compiled default rather than an environment variable: the organisers' evaluation
+  // sets none, so an env-gated improvement ships nothing. RECOVERY_DIRECTED=0 still forces the old blind
+  // alternation for A/B work.
   const char * v = std::getenv("RECOVERY_DIRECTED");
   if (v == nullptr) {
+    return 2;
+  }
+  if (std::strcmp(v, "0") == 0) {
     return 0;
   }
   if (std::strcmp(v, "1") == 0) {
@@ -111,7 +126,7 @@ int directedEscapeMode()
   if (std::strcmp(v, "2") == 0) {
     return 2;
   }
-  return 0;
+  return 2;
 }
 
 }  // namespace
