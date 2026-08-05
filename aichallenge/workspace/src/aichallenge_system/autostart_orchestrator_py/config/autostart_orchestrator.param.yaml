@@ -16,6 +16,12 @@
     capture_stop_timeout_sec: 60.0
     rosbag_topics:
       - /control/command/control_cmd
+      # The AI network's own input, and the speed target its dataset never contained. Without
+      # these two a recorded run is useless as behavioural-cloning data, which is why the
+      # existing dataset had to come from elsewhere and ended up 68 percent stationary frames.
+      # About 20 Hz and 750 ranges, so roughly 60 KB/s -- recording stays off by default anyway.
+      - /sensing/lidar/scan
+      - /vehicle/status/velocity_status
       - /clock
       - /localization/acceleration
       - /localization/kinematic_state

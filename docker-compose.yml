@@ -41,6 +41,8 @@ x-autoware-base: &autoware-base
     - LEAD_LIMIT=${LEAD_LIMIT:-}
     - RECOVERY_STRAIGHT_ESCAPE=${RECOVERY_STRAIGHT_ESCAPE:-}
     - RECOVERY_CREEP_ESCALATION=${RECOVERY_CREEP_ESCALATION:-}
+    - RECOVERY_DIRECTED=${RECOVERY_DIRECTED:-}
+    - ROSBAG=${ROSBAG:-}
   volumes:
     - ./output:${OUTPUT_ROOT:-/output}
     - ./aichallenge:/aichallenge

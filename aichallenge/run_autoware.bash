@@ -39,10 +39,17 @@ esac
 [[ -n "${GUARD_SIDE_LIMIT:-}" ]] && opts+=("guard_side_limit:=${GUARD_SIDE_LIMIT}")
 [[ -n "${GUARD_SPEED:-}" ]] && opts+=("guard_speed:=${GUARD_SPEED}")
 [[ -n "${LEAD_LIMIT:-}" ]] && opts+=("lead_limit:=${LEAD_LIMIT}")
+# Recording is off by default and has to be asked for. It is needed to harvest expert
+# demonstrations: a clean MPC solo run is exactly the behavioural-cloning data the AI track's
+# network lacks, and every eval3p run so far logged "rosbag: false" and threw it away.
+[[ -n "${ROSBAG:-}" ]] && opts+=("rosbag:=${ROSBAG}")
 # 2026-08-02 escape experiments, read straight from the environment by
 # stuck_recovery_controller (not launch args). Default off; see GOAL.md.
 export RECOVERY_STRAIGHT_ESCAPE="${RECOVERY_STRAIGHT_ESCAPE:-}"
 export RECOVERY_CREEP_ESCALATION="${RECOVERY_CREEP_ESCALATION:-}"
+# 0 or unset keeps the blind alternation the verified submission uses; 1 and 2 aim the first
+# escape burst from the latched nominal steering with opposite sign conventions.
+export RECOVERY_DIRECTED="${RECOVERY_DIRECTED:-}"
 
 export ROS_DOMAIN_ID=$id
 
