@@ -58,6 +58,9 @@ class TinyLidarNetNode(Node):
         # Set TLN_DIRECT_SPEED=1 only with a checkpoint trained on the commanded
         # speed; the default keeps the acceleration convention the shipped weights use.
         self._direct_speed = os.environ.get("TLN_DIRECT_SPEED", "0") not in ("0", "false", "")
+        self._v_mean = float(os.environ.get("TLN_SPEED_MEAN", "8.03"))
+        self._v_std = float(os.environ.get("TLN_SPEED_STD", "1.45"))
+        self._v_k = float(os.environ.get("TLN_SPEED_K", "3.0"))
         self._last_report = None
         self._target_v = 0.0
         self._last_t = None
@@ -132,7 +135,11 @@ class TinyLidarNetNode(Node):
         if self._direct_speed:
             # head[0] is a normalised speed. No integration, so no accumulated bias from a
             # quantity the 750-point scan cannot determine on its own.
-            self._target_v = min(max((float(accel) + 1.0) * 0.5 * self._v_max, 0.0), self._v_max)
+            # Inverse of the dataset's zero-centred mapping. Constants must match TLN_SPEED_MEAN,
+            # TLN_SPEED_STD and TLN_SPEED_K used in training; a mismatch shows up only as the car
+            # driving at the wrong speed.
+            self._target_v = min(
+                max(self._v_mean + float(accel) * self._v_k * self._v_std, 0.0), self._v_max)
         else:
             self._target_v = min(
                 max(self._target_v + float(accel) * self._accel_scale * dt, 0.0), self._v_max)
@@ -148,7 +155,8 @@ class TinyLidarNetNode(Node):
             self.get_logger().info(
                 f"[tln] head=({float(accel):+.3f}, {float(steer):+.3f}) "
                 f"direct_speed={int(self._direct_speed)} v_max={self._v_max:.2f} "
-                f"cmd_speed={self._target_v:.2f} scan_min={float(ranges.min()):.2f}")
+                f"cmd_speed={self._target_v:.2f} scan_min={float(ranges.min()):.2f} "
+                f"map=({self._v_mean:.2f},{self._v_std:.2f},k{self._v_k:.1f})")
 
         # 4. Debug Logging
         if self.debug:

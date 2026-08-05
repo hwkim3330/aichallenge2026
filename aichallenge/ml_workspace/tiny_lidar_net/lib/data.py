@@ -54,7 +54,12 @@ class ScanControlSequenceDataset(Dataset):
         # Normalised to [-1, 1] because the head is a tanh; the node inverts exactly this with
         # (head + 1) / 2 * v_max, so its v_max parameter must equal TLN_SPEED_VMAX.
         self.speed_target = os.environ.get("TLN_SPEED_TARGET", "0") not in ("0", "false", "")
-        self.v_max = float(os.environ.get("TLN_SPEED_VMAX", "8.33"))
+        self.v_max = float(os.environ.get("TLN_SPEED_VMAX", "9.2"))
+        # Zero-centring constants. These MUST match the node's, or the car drives at the wrong
+        # speed with no error anywhere; defaults are the measured expert statistics.
+        self.v_mean = float(os.environ.get("TLN_SPEED_MEAN", "8.03"))
+        self.v_std = float(os.environ.get("TLN_SPEED_STD", "1.45"))
+        self.v_k = float(os.environ.get("TLN_SPEED_K", "3.0"))
         if self.speed_target:
             f = self.seq_dir / "cmd_speeds.npy"
             if not f.exists():
@@ -100,8 +105,12 @@ class ScanControlSequenceDataset(Dataset):
         steer = np.float32(self.steers[idx])
         if self.speed_target:
             # Slot 0 becomes the commanded speed, normalised to the tanh range.
+            # Zero-centred, not min-max. Min-max put the target mean at +0.775, and the model settled
+            # at +0.992 where tanh'(x) is about 0.016, so learning stopped: it emitted a constant
+            # (std 0.0009) while a plain linear map on the same input reaches R^2 0.366. Centring puts
+            # the targets where tanh is nearly linear.
             first = np.float32(np.clip(
-                2.0 * float(self.cmd_speeds[idx]) / self.v_max - 1.0, -1.0, 1.0))
+                (float(self.cmd_speeds[idx]) - self.v_mean) / (self.v_k * self.v_std), -1.0, 1.0))
         else:
             first = np.float32(self.accels[idx])
 
