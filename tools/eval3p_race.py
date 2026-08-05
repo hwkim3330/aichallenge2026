@@ -114,7 +114,8 @@ def one_race(tag: str, cfg: str = "config.yaml",
 
 def one_race_per_slot(tag: str, configs: list[str], ref: str,
                       extra: dict | None = None,
-                      refs: list[str] | None = None) -> list[dict]:
+                      refs: list[str] | None = None,
+                      methods: list[str] | None = None) -> list[dict]:
     """A race where each slot runs a different config, for head-to-head comparison."""
     from evolve import link_installed
     out = f"/output/{tag}"
@@ -130,9 +131,11 @@ def one_race_per_slot(tag: str, configs: list[str], ref: str,
         link_installed(cfg)
         rv = refs[i] if refs else ref
         link_installed(rv)
+        env = {**env_for(slot, cfg, rv, out), **extra}
+        if methods:
+            env["CONTROL_METHOD"] = methods[i]
         procs.append(compose(["run", "--rm", "-T", "--name", f"eval3p-{tag}-d{slot}",
-                              "autoware"],
-                             {**env_for(slot, cfg, rv, out), **extra}, wait=False))
+                              "autoware"], env, wait=False))
         time.sleep(8)
     # Only the first car. Waiting for all of them is a deadlock, and the wait is paid by
     # whoever is already sitting on the grid.
@@ -163,6 +166,7 @@ def one_race_per_slot(tag: str, configs: list[str], ref: str,
              else dict(laps=[], completed=0, elapsed=None, finished=False))
         text = log.read_text(errors="replace") if log.exists() else ""
         rows.append(dict(tag=tag, slot=slot, config=cfg,
+                         method=(methods[SLOTS.index(slot)] if methods else "mpc"),
                          ref=(refs[SLOTS.index(slot)] if refs else ref), laps=o["laps"],
                          completed=o["completed"], elapsed=o["elapsed"],
                          finished=o["finished"],
@@ -183,6 +187,9 @@ def main() -> int:
     ap.add_argument("--set-ref", metavar="SECTION=VALUE",
                     help="ref_vel section override, e.g. s1=20.0")
     ap.add_argument("--name", default="base")
+    ap.add_argument("--methods",
+                    help="comma-separated CONTROL_METHOD per slot, e.g. mpc,mpc,tiny_lidar_net; "
+                         "NOT rotated, since the AI car is a fixed role rather than a candidate")
     ap.add_argument("--refs",
                     help="comma-separated ref_vel file per slot, rotated each race like --configs")
     ap.add_argument("--configs",
@@ -213,7 +220,7 @@ def main() -> int:
     for i in range(args.races):
         tag = f"eval3p{args.batch}-{args.name}-{i:02d}"
         print(f"[{time.strftime('%H:%M:%S')}] {tag}", flush=True)
-        if args.configs or args.refs:
+        if args.configs or args.refs or args.methods:
             per = ([c.strip() for c in args.configs.split(",")] if args.configs
                    else [cfg] * len(SLOTS))
             # Rotate which config sits in which slot. Slot position measurably changes the
@@ -223,8 +230,9 @@ def main() -> int:
             if args.refs:
                 refs = [r.strip() for r in args.refs.split(",")]
                 refs = refs[i % len(refs):] + refs[:i % len(refs)]
+            methods = [m.strip() for m in args.methods.split(",")] if args.methods else None
             rows = one_race_per_slot(tag, per, ref,
-                                     dict(kv.split("=", 1) for kv in args.env), refs)
+                                     dict(kv.split("=", 1) for kv in args.env), refs, methods)
         else:
             rows = one_race(tag, cfg, ref, dict(kv.split("=", 1) for kv in args.env))
         all_rows += rows
