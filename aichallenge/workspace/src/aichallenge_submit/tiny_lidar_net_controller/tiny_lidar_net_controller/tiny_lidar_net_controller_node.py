@@ -62,7 +62,14 @@ class TinyLidarNetNode(Node):
         # Limits are the MPC's measured envelope (-1.60..+1.35 m/s^2), not a guess. `or default` because
         # docker-compose injects declared-but-unset variables as EMPTY STRINGS, and float('') raises,
         # which killed the node once already.
-        self.lon_kp = float(os.environ.get('TLN_LON_KP', '') or '1.0')
+        # 1.8 rather than 1.0 from batch PACE1, three cars collisions-off in one race so the comparison
+        # shares the conditions: kp 1.8 with max_speed 11.0 gave best flying 44.09 s / mean flying
+        # 44.40 s, against kp 1.0 with max_speed 9.5 at 48.38 / 48.58. A third slot with
+        # steer_slowdown 5.0 set the fastest single lap of the session, 41.67 s, but is NOT adopted: it
+        # spent 35.3% of frames under 0.5 m/s and ran 30.5 m backwards, for a 55.46 s mean flying lap.
+        # That is the pace ceiling of this control law and also the evidence that corner braking is what
+        # buys the consistency an Elo battle scores.
+        self.lon_kp = float(os.environ.get('TLN_LON_KP', '') or '1.8')
         self.accel_max = float(os.environ.get('TLN_ACCEL_MAX', '') or '1.35')
         self.accel_min = float(os.environ.get('TLN_ACCEL_MIN', '') or '-1.60')
         self.steer_slowdown = float(os.environ.get('TLN_STEER_SLOWDOWN', '') or '8.0')
