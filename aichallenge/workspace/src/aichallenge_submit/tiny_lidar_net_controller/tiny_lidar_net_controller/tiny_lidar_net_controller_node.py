@@ -51,11 +51,18 @@ class TinyLidarNetNode(Node):
         self.log_interval = self.get_parameter('log_interval_sec').value
         self.launch_speed_mps = float(os.environ.get('TLN_LAUNCH_SPEED', '') or '2.0')
         self.lead_margin_mps = float(os.environ.get('TLN_LEAD_MARGIN', '') or '1.5')
-        # Longitudinal P controller on acceleration. kp = 0 keeps the previous constant-acceleration
-        # behaviour exactly, so this is off until measured. Limits are the MPC's measured envelope
-        # (-1.60..+1.35 m/s^2), not a guess. `or default` because docker-compose injects declared-but-
-        # unset variables as EMPTY STRINGS, and float('') raises, which killed the node once already.
-        self.lon_kp = float(os.environ.get('TLN_LON_KP', '') or '0.0')
+        # Longitudinal P controller on acceleration. Now the default, on this measurement over the same
+        # track and 300 s clock (tools/ai_progress.py, laps read from the pose rather than the log):
+        #   kp = 0.0 (constant 0.6 m/s^2)  best lap 79.46 s, 3.47 laps, mean 3.73 m/s
+        #   kp = 1.0                       best lap 48.16 s, 6.05 laps, mean 6.78 m/s
+        # and the MPC on the same run manages 6.05 laps with a 44.35 s best but a 47.49 s mean, because
+        # one lap cost 59.75 s. The AI's mean flying lap of 48.26 s is the more consistent of the two,
+        # and it spends 1.7% of frames under 0.5 m/s against the MPC's 5.2%.
+        # kp = 0.0 still reproduces the old constant-acceleration behaviour exactly.
+        # Limits are the MPC's measured envelope (-1.60..+1.35 m/s^2), not a guess. `or default` because
+        # docker-compose injects declared-but-unset variables as EMPTY STRINGS, and float('') raises,
+        # which killed the node once already.
+        self.lon_kp = float(os.environ.get('TLN_LON_KP', '') or '1.0')
         self.accel_max = float(os.environ.get('TLN_ACCEL_MAX', '') or '1.35')
         self.accel_min = float(os.environ.get('TLN_ACCEL_MIN', '') or '-1.60')
         self.steer_slowdown = float(os.environ.get('TLN_STEER_SLOWDOWN', '') or '8.0')

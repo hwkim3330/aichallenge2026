@@ -49,6 +49,19 @@ for bag in sys.argv[1:]:
     back = float(np.sum(ds[ds < 0]))
     print(f"  forward {fwd:+.1f} m, backward {back:+.1f} m  "
           f"(net/forward {cum[-1] / max(fwd, 1e-9):.2f})")
+    # Per-lap times, from crossings of the cumulative distance. This is the number the competition
+    # scores, and it cannot be read from the log on the AI path because the log's lap line comes from
+    # the MPC node. The first crossing is excluded from "best" only when it starts from the grid, since
+    # a standing start is not a lap time.
+    laps_done = int(cum[-1] // total)
+    cross_t = [float(np.interp(k * total, cum, t)) for k in range(laps_done + 1)]
+    lap_times = [cross_t[i + 1] - cross_t[i] for i in range(len(cross_t) - 1)]
+    if lap_times:
+        flying = lap_times[1:] or lap_times
+        print(f"  lap times: {' '.join(f'{x:.2f}' for x in lap_times)}")
+        print(f"  best {min(lap_times):.2f} s   best flying {min(flying):.2f} s   "
+              f"mean flying {sum(flying) / len(flying):.2f} s")
+
     # where does it lose time: progress per 20 s bucket
     print("  progress per 20 s:", " ".join(
         f"{cum[min(np.searchsorted(t, b + 20), len(t) - 1)] - cum[np.searchsorted(t, b)]:+.0f}"
