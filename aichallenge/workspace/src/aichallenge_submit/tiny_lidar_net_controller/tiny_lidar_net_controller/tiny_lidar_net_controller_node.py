@@ -51,6 +51,16 @@ class TinyLidarNetNode(Node):
         self.log_interval = self.get_parameter('log_interval_sec').value
         self.launch_speed_mps = float(os.environ.get('TLN_LAUNCH_SPEED', '') or '2.0')
         self.lead_margin_mps = float(os.environ.get('TLN_LEAD_MARGIN', '') or '1.5')
+        # Longitudinal P controller on acceleration. kp = 0 keeps the previous constant-acceleration
+        # behaviour exactly, so this is off until measured. Limits are the MPC's measured envelope
+        # (-1.60..+1.35 m/s^2), not a guess. `or default` because docker-compose injects declared-but-
+        # unset variables as EMPTY STRINGS, and float('') raises, which killed the node once already.
+        self.lon_kp = float(os.environ.get('TLN_LON_KP', '') or '0.0')
+        self.accel_max = float(os.environ.get('TLN_ACCEL_MAX', '') or '1.35')
+        self.accel_min = float(os.environ.get('TLN_ACCEL_MIN', '') or '-1.60')
+        self.steer_slowdown = float(os.environ.get('TLN_STEER_SLOWDOWN', '') or '8.0')
+        self.corner_speed_mps = float(os.environ.get('TLN_CORNER_SPEED', '') or '4.5')
+        self._v_des = 0.0
         # Time-indexed acceleration replay. See the module this was patched by: the trace is a flying lap,
         # so it needs an entry speed, and it is indexed by time because the AI division bans position.
         self._replay_t = None
@@ -203,6 +213,33 @@ class TinyLidarNetNode(Node):
                     f'[tln] REPLAY steer={float(steer):+.3f} v_meas={self._last_velocity_mps:.2f} '
                     f'setpoint={target_speed:.2f} cap={self.max_speed_mps:.2f}')
             return
+        # Longitudinal control on ACCELERATION, which is the channel the vehicle actually tracks.
+        #
+        # Measured on the same track, same 300 s, from the recorded /control/command/control_cmd:
+        #   this node   cmd.speed mean 9.19  cmd.acceleration CONSTANT 0.600  ->  measured v mean 3.73
+        #   the MPC     cmd.speed mean 7.94  cmd.acceleration mean 1.064, range -1.60..+1.35
+        #                                                                 ->  measured v mean 6.97
+        # So the vehicle does not chase cmd.speed; a constant 0.6 m/s^2 simply equilibrates against drag
+        # at about 4.9 m/s, which is the "speed ceiling" that resisted every change to the setpoint. It
+        # was never a steering-scrub consequence: raising the setpoint to 9.5 cannot help when the
+        # acceleration channel is pinned. Upstream's own 0.3 -> 0.6 bump (eefb9ef) is the same lever.
+        #
+        # The MPC's envelope is the evidence for the limits used here: -1.60..+1.35 m/s^2 is proven
+        # feasible on this vehicle, so the P controller is clipped to it rather than to a guess.
+        #
+        # Target speed comes from the steering the network just produced: the harder it is turning, the
+        # less speed the corner allows. That keeps the AI division's sensor rules -- it needs no position,
+        # only the lidar the network already saw.
+        if self.lon_kp > 0.0:
+            v_des = self.max_speed_mps - self.steer_slowdown * abs(float(steer))
+            v_des = float(np.clip(v_des, self.corner_speed_mps, self.max_speed_mps))
+            if self._last_velocity_mps < self.launch_speed_mps:
+                v_des = max(v_des, self.launch_speed_mps)
+            accel = float(np.clip(self.lon_kp * (v_des - self._last_velocity_mps),
+                                  self.accel_min, self.accel_max))
+            target_speed = v_des
+            self._v_des = v_des
+
         cmd.stamp = self.get_clock().now().to_msg()
         cmd.longitudinal.speed = target_speed
         cmd.longitudinal.acceleration = float(accel)
@@ -217,7 +254,9 @@ class TinyLidarNetNode(Node):
                 f'[tln] head=({float(accel):+.3f}, {float(steer):+.3f}) '
                 f'v_meas={self._last_velocity_mps:.2f} setpoint={target_speed:.2f} '
                 f'lead={self.lead_margin_mps:.1f} '
-                f'cap={self.max_speed_mps:.2f} mode={self.core.control_mode}')
+                f'cap={self.max_speed_mps:.2f} mode={self.core.control_mode} '
+                f'lon_kp={self.lon_kp:.2f} v_des={self._v_des:.2f} '
+                f'a_cmd={float(accel):+.3f}')
 
         # 4. Debug Logging
         if self.debug:
