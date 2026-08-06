@@ -8,6 +8,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import LaserScan
 from autoware_auto_control_msgs.msg import AckermannControlCommand
+from autoware_auto_vehicle_msgs.msg import VelocityReport
 
 from tiny_lidar_net_controller_core import TinyLidarNetCore
 
@@ -30,20 +31,10 @@ class TinyLidarNetNode(Node):
         self.declare_parameter('model.ckpt_path', '')
         self.declare_parameter('max_range', 30.0)
         self.declare_parameter('acceleration', 0.1)
-        # The network's second head is an acceleration, and this node used to publish only
-        # that, leaving AckermannControlCommand.longitudinal.speed at its default 0.0. The
-        # vehicle follows speed, so the car never moved: measured live at 20 Hz with
-        # steering alive at -0.216 rad, speed 0.0, and longitudinal_velocity 0.0 throughout.
-        # Zero laps, and it was read as the model having failed to learn speed.
-        # Integrate the commanded acceleration into a speed target instead.
-        # 9.2 m/s, not 8.33. The expert demonstrations recorded from clean MPC runs command up to
-        # 9.167 m/s and 48.4 percent of their frames exceed 8.33, so normalising against 8.33 would
-        # squash nearly half the target range against the top of the tanh and teach the network that
-        # every fast section is the same speed. Must equal TLN_SPEED_VMAX used when training.
-        self.declare_parameter('v_max', 9.2)
-        self.declare_parameter('accel_scale', 1.0)
         self.declare_parameter('control_mode', 'ai')
         self.declare_parameter('debug', False)
+        self.declare_parameter('max_speed_mps', 10.0)
+        self.declare_parameter('min_speed_mps', 0.0)
 
         # --- Initialization ---
         input_dim = self.get_parameter('model.input_dim').value
@@ -52,30 +43,25 @@ class TinyLidarNetNode(Node):
         ckpt_path = self.get_parameter('model.ckpt_path').value
         max_range = self.get_parameter('max_range').value
         acceleration = self.get_parameter('acceleration').value
-        acceleration = float(os.environ.get('TLN_FIXED_ACCEL', '') or acceleration)
-        self._v_max = float(self.get_parameter('v_max').value)
-        # Env override so the OFFICIAL design can be swept: control_mode fixed means the network
-        # supplies steering only and speed is a constant ramp, so the cruise cap is the one
-        # free parameter deciding whether steering-only can hold the track.
-        self._v_max = float(os.environ.get('TLN_VMAX', '') or self._v_max)
-        self._accel_scale = float(self.get_parameter('accel_scale').value)
-
-        # Set TLN_DIRECT_SPEED=1 only with a checkpoint trained on the commanded
-        # speed; the default keeps the acceleration convention the shipped weights use.
-        self._direct_speed = os.environ.get("TLN_DIRECT_SPEED", "0") not in ("0", "false", "")
-        self._v_mean = float(os.environ.get("TLN_SPEED_MEAN", "") or "8.03")
-        self._v_std = float(os.environ.get("TLN_SPEED_STD", "") or "1.45")
-        self._v_k = float(os.environ.get("TLN_SPEED_K", "") or "3.0")
-        self._last_report = None
-        self._target_v = 0.0
-        self._last_t = None
         control_mode = self.get_parameter('control_mode').value
-        # Env override so the original design (fixed acceleration plus network steering) and the
-        # speed-regression design can be compared without editing the param file between runs.
+        # Override so the July design and any alternative can be compared without file edits.
         control_mode = os.environ.get('TLN_CONTROL_MODE', '') or control_mode
         
         self.debug = self.get_parameter('debug').value
         self.log_interval = self.get_parameter('log_interval_sec').value
+        self.launch_speed_mps = float(os.environ.get('TLN_LAUNCH_SPEED', '') or '2.0')
+        self.lead_margin_mps = float(os.environ.get('TLN_LEAD_MARGIN', '') or '1.5')
+        self.max_speed_mps = float(os.environ.get('TLN_MAX_SPEED', '')
+                                   or self.get_parameter('max_speed_mps').value)
+        self.min_speed_mps = self.get_parameter('min_speed_mps').value
+
+        # AckermannControlCommand.longitudinal.speed is the setpoint AWSIM's
+        # vehicle bridge actually tracks; .acceleration alone never moves the
+        # vehicle. No planned trajectory exists here to read a target speed
+        # from like MPC does, so integrate one from the model's own accel
+        # output against the last known real velocity.
+        self._last_velocity_mps = 0.0
+        self._last_callback_time = None
 
         try:
             self.core = TinyLidarNetCore(
@@ -107,11 +93,19 @@ class TinyLidarNetNode(Node):
         self.sub_scan = self.create_subscription(
             LaserScan, "/scan", self.scan_callback, qos
         )
+        self.sub_velocity = self.create_subscription(
+            VelocityReport, "/vehicle/status/velocity_status",
+            self._velocity_callback, qos
+        )
         self.pub_control = self.create_publisher(
             AckermannControlCommand, "/control/command/control_cmd", 1
         )
 
         self.get_logger().info("TinyLidarNetNode is ready.")
+
+    def _velocity_callback(self, msg: VelocityReport):
+        """Tracks the vehicle's real current speed for speed-setpoint integration."""
+        self._last_velocity_mps = msg.longitudinal_velocity
 
     def scan_callback(self, msg: LaserScan):
         """Callback for LaserScan subscription.
@@ -130,41 +124,55 @@ class TinyLidarNetNode(Node):
         # 2. Process via Core Logic
         accel, steer = self.core.process(ranges)
 
+        # 2b. Integrate a speed setpoint from the model's own acceleration
+        # (see note above __init__ on why .acceleration alone can't move
+        # the vehicle).
+        now = self.get_clock().now()
+        if self._last_callback_time is not None:
+            dt = (now - self._last_callback_time).nanoseconds / 1e9
+        else:
+            dt = 0.1  # first callback: assume the nominal ~10Hz scan rate
+        self._last_callback_time = now
+        dt = max(0.0, min(dt, 0.5))  # guard against a stale/huge gap
+
+        # July's closed loop, plus a floor. Integrating from the MEASURED velocity is what makes the
+        # setpoint track reality instead of climbing to the cap while the car is stuck against a wall.
+        # But at a standstill it traps itself: v_meas 0.00 gives 0 + 0.6*0.05 = 0.03 m/s forever, which is
+        # exactly what the restored node did -- the car never left the grid. The floor only applies while
+        # the vehicle is essentially stopped, so it restores launch without weakening the tracking.
+        # Both pure forms fail, in opposite directions, and this is measured rather than argued:
+        #   open loop  (setpoint += accel*dt)         climbs to the cap while the car sits against a wall,
+        #                                            so the command bears no relation to reality
+        #   closed loop (setpoint = v_meas + accel*dt) is July's, and it plateaus: the vehicle tracks the
+        #                                            setpoint with a steady-state error, so the two hold
+        #                                            each other at an equilibrium -- measured 2.5 m/s here
+        # So ratchet the setpoint up like the open loop, but never let it lead the measured speed by more
+        # than lead_margin. That accelerates properly and still collapses back to reality when the car is
+        # held up, which is what the closed loop was protecting.
+        self._setpoint = getattr(self, "_setpoint", 0.0) + float(accel) * dt
+        self._setpoint = min(self._setpoint, self._last_velocity_mps + self.lead_margin_mps)
+        if self._last_velocity_mps < self.launch_speed_mps:
+            self._setpoint = max(self._setpoint, self.launch_speed_mps)
+        target_speed = self._setpoint
+        target_speed = float(np.clip(target_speed, self.min_speed_mps, self.max_speed_mps))
+
         # 3. Publish Command
         cmd = AckermannControlCommand()
         cmd.stamp = self.get_clock().now().to_msg()
+        cmd.longitudinal.speed = target_speed
         cmd.longitudinal.acceleration = float(accel)
-        now_s = self.get_clock().now().nanoseconds * 1e-9
-        dt = 0.05 if self._last_t is None else min(max(now_s - self._last_t, 0.0), 0.2)
-        self._last_t = now_s
-# Two target conventions, chosen explicitly. A checkpoint trained against one is
-        # meaningless under the other, and the failure would look like bad driving rather than a
-        # configuration mismatch, so it is never inferred.
-        if self._direct_speed:
-            # head[0] is a normalised speed. No integration, so no accumulated bias from a
-            # quantity the 750-point scan cannot determine on its own.
-            # Inverse of the dataset's zero-centred mapping. Constants must match TLN_SPEED_MEAN,
-            # TLN_SPEED_STD and TLN_SPEED_K used in training; a mismatch shows up only as the car
-            # driving at the wrong speed.
-            self._target_v = min(
-                max(self._v_mean + float(accel) * self._v_k * self._v_std, 0.0), self._v_max)
-        else:
-            self._target_v = min(
-                max(self._target_v + float(accel) * self._accel_scale * dt, 0.0), self._v_max)
-        cmd.longitudinal.speed = float(self._target_v)
         cmd.lateral.steering_tire_angle = float(steer)
         self.pub_control.publish(cmd)
-
-        # Report what the network actually asks for, once a second. Without this the node loads
-        # cleanly, completes zero laps and says nothing about why -- which is how the last drive test
-        # ended. The same lesson as the four dead flags found today: read the OUTPUT, not the config.
-        if self._last_report is None or now_s - self._last_report >= 1.0:
-            self._last_report = now_s
+        # Report the head, the measured speed it was integrated from, and the setpoint, once a
+        # second. Without this the node runs silently and a constant output looks like driving.
+        if getattr(self, '_last_report', None) is None or \
+                (now.nanoseconds * 1e-9) - self._last_report >= 1.0:
+            self._last_report = now.nanoseconds * 1e-9
             self.get_logger().info(
-                f"[tln] head=({float(accel):+.3f}, {float(steer):+.3f}) "
-                f"direct_speed={int(self._direct_speed)} v_max={self._v_max:.2f} "
-                f"cmd_speed={self._target_v:.2f} scan_min={float(ranges.min()):.2f} "
-                f"map=({self._v_mean:.2f},{self._v_std:.2f},k{self._v_k:.1f})")
+                f'[tln] head=({float(accel):+.3f}, {float(steer):+.3f}) '
+                f'v_meas={self._last_velocity_mps:.2f} setpoint={target_speed:.2f} '
+                f'lead={self.lead_margin_mps:.1f} '
+                f'cap={self.max_speed_mps:.2f} mode={self.core.control_mode}')
 
         # 4. Debug Logging
         if self.debug:

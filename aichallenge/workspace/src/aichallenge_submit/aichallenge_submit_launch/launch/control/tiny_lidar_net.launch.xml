@@ -12,6 +12,13 @@
        all: inert, never detecting, never rescuing. The AI track was running with no
        deadlock safety net while the same net took the MPC track from 32 laps to 68 across
        12 races (tools/GOAL.md). -->
+  <!-- nominal_control_cmd, NOT control_cmd, and that is required in THIS tree rather than a
+       preference. Upstream publishes straight to control_cmd because upstream has neither
+       lidar_guard nor stuck_recovery_controller; we added both, and they sit in the AI chain as
+       TLN then guard then recovery then control_cmd. Publishing directly to control_cmd starves
+       them, and the car never reports ready: measured as "no car reported ready inside 90 s" with
+       an 81 line log ending at node startup. To run the genuinely official path, those two nodes
+       have to leave the chain, which is a launch change and not an environment variable. -->
   <arg name="control_cmd_topic" default="/control/command/nominal_control_cmd"/>
 
   <group if="$(var vscan_mode)">
