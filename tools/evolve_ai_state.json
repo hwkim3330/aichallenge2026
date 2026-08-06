@@ -1,0 +1,82 @@
+{
+  "champion": {
+    "TLN_STEER_SLOWDOWN": 8.0,
+    "TLN_MAX_SPEED": 9.5,
+    "TLN_CORNER_SPEED": 4.5,
+    "TLN_LON_KP": 1.0
+  },
+  "history": [
+    {
+      "gen": 0,
+      "gene": "TLN_STEER_SLOWDOWN",
+      "scored": {
+        "1": [
+          0.0,
+          0.0
+        ],
+        "2": [
+          0.0,
+          0.0
+        ],
+        "3": [
+          0.0,
+          0.0
+        ]
+      },
+      "champion": {
+        "TLN_STEER_SLOWDOWN": 8.0,
+        "TLN_MAX_SPEED": 9.5,
+        "TLN_CORNER_SPEED": 4.5,
+        "TLN_LON_KP": 1.0
+      }
+    },
+    {
+      "gen": 1,
+      "gene": "TLN_MAX_SPEED",
+      "scored": {
+        "1": [
+          0.0,
+          0.0
+        ],
+        "2": [
+          0.0,
+          0.0
+        ],
+        "3": [
+          0.0,
+          0.0
+        ]
+      },
+      "champion": {
+        "TLN_STEER_SLOWDOWN": 8.0,
+        "TLN_MAX_SPEED": 9.5,
+        "TLN_CORNER_SPEED": 4.5,
+        "TLN_LON_KP": 1.0
+      }
+    },
+    {
+      "gen": 2,
+      "gene": "TLN_CORNER_SPEED",
+      "scored": {
+        "1": [
+          0.0,
+          0.0
+        ],
+        "2": [
+          0.0,
+          0.0
+        ],
+        "3": [
+          0.0,
+          0.0
+        ]
+      },
+      "champion": {
+        "TLN_STEER_SLOWDOWN": 8.0,
+        "TLN_MAX_SPEED": 9.5,
+        "TLN_CORNER_SPEED": 4.5,
+        "TLN_LON_KP": 1.0
+      }
+    }
+  ]
+}
