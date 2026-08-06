@@ -56,6 +56,8 @@ x-autoware-base: &autoware-base
     - TLN_MAX_SPEED=${TLN_MAX_SPEED:-}
     - TLN_LAUNCH_SPEED=${TLN_LAUNCH_SPEED:-}
     - TLN_LEAD_MARGIN=${TLN_LEAD_MARGIN:-}
+    - TLN_REPLAY_PROFILE=${TLN_REPLAY_PROFILE:-}
+    - TLN_REPLAY_V0=${TLN_REPLAY_V0:-}
     - ROSBAG=${ROSBAG:-}
   volumes:
     - ./output:${OUTPUT_ROOT:-/output}

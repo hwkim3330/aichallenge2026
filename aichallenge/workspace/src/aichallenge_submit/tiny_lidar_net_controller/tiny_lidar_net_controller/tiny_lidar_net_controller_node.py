@@ -51,6 +51,25 @@ class TinyLidarNetNode(Node):
         self.log_interval = self.get_parameter('log_interval_sec').value
         self.launch_speed_mps = float(os.environ.get('TLN_LAUNCH_SPEED', '') or '2.0')
         self.lead_margin_mps = float(os.environ.get('TLN_LEAD_MARGIN', '') or '1.5')
+        # Time-indexed acceleration replay. See the module this was patched by: the trace is a flying lap,
+        # so it needs an entry speed, and it is indexed by time because the AI division bans position.
+        self._replay_t = None
+        self._replay_a = None
+        self._replay_v0 = float(os.environ.get('TLN_REPLAY_V0', '') or '6.2')
+        _rp = os.environ.get('TLN_REPLAY_PROFILE', '')
+        if _rp:
+            import json
+            _d = json.load(open(_rp))
+            self._replay_t = np.asarray(_d['t_sec'], dtype=float)
+            self._replay_a = np.asarray(_d['accel_mps2'], dtype=float)
+            _dt = np.diff(self._replay_t)
+            _dv = np.concatenate([[0.0], np.cumsum(_dt * (self._replay_a[:-1] + self._replay_a[1:]) / 2)])
+            self._replay_v = self._replay_v0 + _dv
+            self._replay_start = None
+            self.get_logger().info(
+                f'replay profile {_rp}: {len(self._replay_t)} points over '
+                f'{self._replay_t[-1]:.2f} s, speed {self._replay_v.min():.2f}..'
+                f'{self._replay_v.max():.2f} m/s from v0={self._replay_v0:.2f}')
         self.max_speed_mps = float(os.environ.get('TLN_MAX_SPEED', '')
                                    or self.get_parameter('max_speed_mps').value)
         self.min_speed_mps = self.get_parameter('min_speed_mps').value
@@ -149,6 +168,7 @@ class TinyLidarNetNode(Node):
         # So ratchet the setpoint up like the open loop, but never let it lead the measured speed by more
         # than lead_margin. That accelerates properly and still collapses back to reality when the car is
         # held up, which is what the closed loop was protecting.
+
         self._setpoint = getattr(self, "_setpoint", 0.0) + float(accel) * dt
         self._setpoint = min(self._setpoint, self._last_velocity_mps + self.lead_margin_mps)
         if self._last_velocity_mps < self.launch_speed_mps:
@@ -158,6 +178,31 @@ class TinyLidarNetNode(Node):
 
         # 3. Publish Command
         cmd = AckermannControlCommand()
+        if self._replay_t is not None:
+            # Wall-clock replay, started on the first frame the vehicle is actually moving so the grid
+            # countdown does not consume the trace.
+            now_s = now.nanoseconds * 1e-9
+            if self._replay_start is None:
+                if self._last_velocity_mps > 0.5:
+                    self._replay_start = now_s
+                self._setpoint = max(self._replay_v0, self.launch_speed_mps)
+            else:
+                tt = (now_s - self._replay_start) % float(self._replay_t[-1])
+                self._setpoint = float(np.interp(tt, self._replay_t, self._replay_v))
+            target_speed = float(np.clip(self._setpoint, 0.0, self.max_speed_mps))
+            # Stamp and acceleration matter: this branch sits before the normal stanza that fills them,
+            # and an unstamped command with acceleration 0 is not the same message the vehicle expects.
+            cmd.stamp = self.get_clock().now().to_msg()
+            cmd.longitudinal.speed = target_speed
+            cmd.longitudinal.acceleration = float(accel)
+            cmd.lateral.steering_tire_angle = float(steer)
+            self.pub_control.publish(cmd)
+            if getattr(self, '_last_report', None) is None or now_s - self._last_report >= 1.0:
+                self._last_report = now_s
+                self.get_logger().info(
+                    f'[tln] REPLAY steer={float(steer):+.3f} v_meas={self._last_velocity_mps:.2f} '
+                    f'setpoint={target_speed:.2f} cap={self.max_speed_mps:.2f}')
+            return
         cmd.stamp = self.get_clock().now().to_msg()
         cmd.longitudinal.speed = target_speed
         cmd.longitudinal.acceleration = float(accel)
