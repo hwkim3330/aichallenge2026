@@ -52,19 +52,27 @@ class TinyLidarNetNode(Node):
         ckpt_path = self.get_parameter('model.ckpt_path').value
         max_range = self.get_parameter('max_range').value
         acceleration = self.get_parameter('acceleration').value
+        acceleration = float(os.environ.get('TLN_FIXED_ACCEL', '') or acceleration)
         self._v_max = float(self.get_parameter('v_max').value)
+        # Env override so the OFFICIAL design can be swept: control_mode fixed means the network
+        # supplies steering only and speed is a constant ramp, so the cruise cap is the one
+        # free parameter deciding whether steering-only can hold the track.
+        self._v_max = float(os.environ.get('TLN_VMAX', '') or self._v_max)
         self._accel_scale = float(self.get_parameter('accel_scale').value)
 
         # Set TLN_DIRECT_SPEED=1 only with a checkpoint trained on the commanded
         # speed; the default keeps the acceleration convention the shipped weights use.
         self._direct_speed = os.environ.get("TLN_DIRECT_SPEED", "0") not in ("0", "false", "")
-        self._v_mean = float(os.environ.get("TLN_SPEED_MEAN", "8.03"))
-        self._v_std = float(os.environ.get("TLN_SPEED_STD", "1.45"))
-        self._v_k = float(os.environ.get("TLN_SPEED_K", "3.0"))
+        self._v_mean = float(os.environ.get("TLN_SPEED_MEAN", "") or "8.03")
+        self._v_std = float(os.environ.get("TLN_SPEED_STD", "") or "1.45")
+        self._v_k = float(os.environ.get("TLN_SPEED_K", "") or "3.0")
         self._last_report = None
         self._target_v = 0.0
         self._last_t = None
         control_mode = self.get_parameter('control_mode').value
+        # Env override so the original design (fixed acceleration plus network steering) and the
+        # speed-regression design can be compared without editing the param file between runs.
+        control_mode = os.environ.get('TLN_CONTROL_MODE', '') or control_mode
         
         self.debug = self.get_parameter('debug').value
         self.log_interval = self.get_parameter('log_interval_sec').value

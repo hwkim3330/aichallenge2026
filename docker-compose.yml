@@ -50,6 +50,9 @@ x-autoware-base: &autoware-base
     - TLN_SPEED_MEAN=${TLN_SPEED_MEAN:-}
     - TLN_SPEED_STD=${TLN_SPEED_STD:-}
     - TLN_SPEED_K=${TLN_SPEED_K:-}
+    - TLN_CONTROL_MODE=${TLN_CONTROL_MODE:-}
+    - TLN_FIXED_ACCEL=${TLN_FIXED_ACCEL:-}
+    - TLN_VMAX=${TLN_VMAX:-}
     - ROSBAG=${ROSBAG:-}
   volumes:
     - ./output:${OUTPUT_ROOT:-/output}
