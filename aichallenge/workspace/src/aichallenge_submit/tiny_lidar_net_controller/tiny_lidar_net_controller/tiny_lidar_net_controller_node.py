@@ -6,7 +6,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from sensor_msgs.msg import LaserScan
+from sensor_msgs.msg import Imu, LaserScan
 from autoware_auto_control_msgs.msg import AckermannControlCommand
 from autoware_auto_vehicle_msgs.msg import VelocityReport
 
@@ -75,6 +75,37 @@ class TinyLidarNetNode(Node):
         self.steer_slowdown = float(os.environ.get('TLN_STEER_SLOWDOWN', '') or '8.0')
         self.corner_speed_mps = float(os.environ.get('TLN_CORNER_SPEED', '') or '4.5')
         self._v_des = 0.0
+
+        # --- Wrong-way detection, from integrated yaw only ---------------------------------------
+        # Why this exists: in 18 slots of the official three-car race, 4 failed to complete six laps,
+        # and the cause was not pace. A car that gets turned around DRIVES THE WRONG WAY AT RACING
+        # SPEED and never recovers -- measured at -144 and -76 m at 7.55 m/s, and -118/-95/-157/-103/-116 m
+        # at up to 8.41 m/s. TinyLidarNet decides from a single LaserScan and the circuit looks much the
+        # same in both directions, so nothing in the policy can represent "this is the wrong way".
+        #
+        # Yaw is enough to tell, because traversing a closed circuit in reverse flips the sign of the
+        # accumulated heading. Measured over 40 s windows across five runs: forward driving gives net yaw
+        # -246 deg on average (median -274, p95 -14; this circuit runs clockwise), while wrong-way gives
+        # +142 (median +124, p5 +22). A threshold of +50 deg catches 85% of wrong-way windows with ZERO
+        # false positives on forward driving, and +0 deg catches 96% with 3% false positives. +50 is used:
+        # a false positive would throw away a good run, and the failure it guards against is slow anyway.
+        #
+        # Gyro only, so this is legal whichever way the division's sensor restrictions are read. It uses
+        # /sensing/imu/imu_raw, which participant-interface.md requires every submission to subscribe.
+        self.wrongway_window_s = float(os.environ.get('TLN_WRONGWAY_WINDOW', '') or '40.0')
+        self.wrongway_yaw_deg = float(os.environ.get('TLN_WRONGWAY_YAW_DEG', '') or '50.0')
+        self.wrongway_enable = (os.environ.get('TLN_WRONGWAY', '') or '1') not in ('0', 'false')
+        self.uturn_speed_mps = float(os.environ.get('TLN_UTURN_SPEED', '') or '1.5')
+        self.uturn_steer = float(os.environ.get('TLN_UTURN_STEER', '') or '0.40')
+        self.uturn_yaw_target_deg = float(os.environ.get('TLN_UTURN_YAW_DEG', '') or '150.0')
+        self._yaw_hist = []          # (t_sec, yaw_rate) inside the detection window
+        self._uturn_until_yaw = None  # set while a recovery U-turn is in progress
+        self._uturn_yaw_acc = 0.0
+        self._uturn_count = 0
+        self._last_imu_t = None
+        self.create_subscription(Imu, '/sensing/imu/imu_raw', self._imu_cb,
+                                 QoSProfile(depth=20, reliability=ReliabilityPolicy.BEST_EFFORT,
+                                            history=HistoryPolicy.KEEP_LAST))
         # Time-indexed acceleration replay. See the module this was patched by: the trace is a flying lap,
         # so it needs an entry speed, and it is indexed by time because the AI division bans position.
         self._replay_t = None
@@ -149,6 +180,73 @@ class TinyLidarNetNode(Node):
     def _velocity_callback(self, msg: VelocityReport):
         """Tracks the vehicle's real current speed for speed-setpoint integration."""
         self._last_velocity_mps = msg.longitudinal_velocity
+
+    def _imu_cb(self, msg: Imu):
+        """Accumulates yaw rate over a sliding window, for the wrong-way test."""
+        t = (msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9)
+        if t <= 0.0:
+            return
+        wz = float(msg.angular_velocity.z)
+        if self._last_imu_t is not None:
+            dt = t - self._last_imu_t
+            if 0.0 < dt < 0.5:
+                self._yaw_hist.append((t, wz * dt))
+                if self._uturn_until_yaw is not None:
+                    self._uturn_yaw_acc += wz * dt
+        self._last_imu_t = t
+        cut = t - self.wrongway_window_s
+        while self._yaw_hist and self._yaw_hist[0][0] < cut:
+            self._yaw_hist.pop(0)
+
+    def _net_yaw_deg(self) -> float:
+        return float(np.degrees(sum(d for _, d in self._yaw_hist)))
+
+    def _uturn_command(self, cmd, now):
+        """Return a U-turn command while recovering from a wrong-way heading, else None.
+
+        Entry needs a FULL window of yaw history, so the test cannot fire during the first
+        `wrongway_window_s` of the race -- the grid start accumulates very little yaw and would otherwise
+        read as ambiguous. Exit is on yaw turned during the manoeuvre, not on a timer, because how long a
+        given turn takes depends on where the car is wedged.
+        """
+        now_s = now.nanoseconds * 1e-9
+        if self._uturn_until_yaw is None:
+            if len(self._yaw_hist) < 20:
+                return None
+            span = self._yaw_hist[-1][0] - self._yaw_hist[0][0]
+            if span < self.wrongway_window_s * 0.8:
+                return None
+            if self._net_yaw_deg() <= self.wrongway_yaw_deg:
+                return None
+            self._uturn_until_yaw = self.uturn_yaw_target_deg
+            self._uturn_yaw_acc = 0.0
+            self._uturn_count += 1
+            self.get_logger().warn(
+                f'[tln] WRONG WAY: net yaw {self._net_yaw_deg():+.0f} deg over '
+                f'{span:.0f} s exceeds +{self.wrongway_yaw_deg:.0f}; U-turn #{self._uturn_count}')
+
+        turned = abs(np.degrees(self._uturn_yaw_acc))
+        if turned >= self._uturn_until_yaw:
+            self.get_logger().warn(f'[tln] U-turn complete, turned {turned:.0f} deg; resuming')
+            self._uturn_until_yaw = None
+            self._yaw_hist.clear()   # the manoeuvre's own yaw must not re-trigger the test
+            self._last_imu_t = None
+            return None
+
+        # Reverse under steering lock. Reversing rather than driving forward because the car reaches this
+        # state by being stopped or wedged against something it just hit, and reverse is the direction with
+        # room in it -- the same reasoning stuck_recovery_controller's directed escape already uses.
+        out = AckermannControlCommand()
+        out.stamp = self.get_clock().now().to_msg()
+        out.longitudinal.speed = -abs(self.uturn_speed_mps)
+        out.longitudinal.acceleration = -0.8 if self._last_velocity_mps > -abs(self.uturn_speed_mps) else 0.0
+        out.lateral.steering_tire_angle = float(self.uturn_steer)
+        if getattr(self, '_last_uturn_report', None) is None or now_s - self._last_uturn_report >= 1.0:
+            self._last_uturn_report = now_s
+            self.get_logger().info(
+                f'[tln] UTURN turned={turned:.0f}/{self._uturn_until_yaw:.0f} deg '
+                f'v_meas={self._last_velocity_mps:.2f}')
+        return out
 
     def scan_callback(self, msg: LaserScan):
         """Callback for LaserScan subscription.
@@ -227,6 +325,15 @@ class TinyLidarNetNode(Node):
                     f'[tln] REPLAY steer={float(steer):+.3f} v_meas={self._last_velocity_mps:.2f} '
                     f'setpoint={target_speed:.2f} cap={self.max_speed_mps:.2f}')
             return
+        # Wrong-way recovery takes priority over everything else: a car pointing the wrong way does not
+        # need a better speed profile, it needs to be pointing the other way. See the notes in __init__
+        # for the measurements that motivate this and for the threshold's false-positive rate.
+        if self.wrongway_enable:
+            uturn = self._uturn_command(cmd, now)
+            if uturn is not None:
+                self.pub_control.publish(uturn)
+                return
+
         # Longitudinal control on ACCELERATION, which is the channel the vehicle actually tracks.
         #
         # Measured on the same track, same 300 s, from the recorded /control/command/control_cmd:
@@ -270,7 +377,11 @@ class TinyLidarNetNode(Node):
                 f'lead={self.lead_margin_mps:.1f} '
                 f'cap={self.max_speed_mps:.2f} mode={self.core.control_mode} '
                 f'lon_kp={self.lon_kp:.2f} v_des={self._v_des:.2f} '
-                f'a_cmd={float(accel):+.3f}')
+                f'a_cmd={float(accel):+.3f} '
+                # imu_n is the gate's input: if it stays 0 the IMU topic is not arriving and the
+                # wrong-way test silently cannot fire, which is exactly the failure to look for.
+                f'yaw={self._net_yaw_deg():+.0f}deg imu_n={len(self._yaw_hist)} '
+                f'uturns={self._uturn_count}')
 
         # 4. Debug Logging
         if self.debug:
