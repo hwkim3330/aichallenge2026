@@ -74,6 +74,28 @@ class TinyLidarNetNode(Node):
         self.accel_min = float(os.environ.get('TLN_ACCEL_MIN', '') or '-1.60')
         self.steer_slowdown = float(os.environ.get('TLN_STEER_SLOWDOWN', '') or '8.0')
         self.corner_speed_mps = float(os.environ.get('TLN_CORNER_SPEED', '') or '4.5')
+        # Take the target speed from the NETWORK's slot-0 head instead of the |steer| law.
+        #
+        # The |steer| law is reactive: it slows only once the wheel is already turned, and the AI's one
+        # remaining failure is the tightest corner on the circuit (4.3 m radius at s 56-85 m) reached
+        # straight off the longest straight at 10.01 m/s. Front clearance and steering rate were both
+        # tested as anticipatory substitutes and both read the WIDER corner as more dangerous, so neither
+        # can serve. The scan does contain the corner's shape, so the fix is a target that encodes it:
+        # the MPC's commanded speed, recorded beside every scan.
+        #
+        # Measured on 59226 held-out frames, this checkpoint trained on both heads:
+        #   speed    R2 +0.968, std 0.5444 against target 0.5495, MAE 0.056 m/s, range 6.03..9.33
+        #   steering R2 +0.918, against 0.922 for the steering-only checkpoint
+        # so the speed head is real and steering paid 0.004 for it. The earlier attempt at this head
+        # emitted a CONSTANT (std 0.0009) because the old min-max mapping put the target mean at +0.775
+        # where tanh' is about 0.016; the zero-centred mapping below is what fixed it.
+        #
+        # These three constants MUST equal the ones training used, or the car drives at the wrong speed
+        # with no error anywhere, so they are reported in the 1 Hz line.
+        self.vdes_from_net = (os.environ.get('TLN_VDES_FROM_NET', '') or '0') not in ('0', 'false')
+        self._v_mean = float(os.environ.get('TLN_SPEED_MEAN', '') or '7.86')
+        self._v_std = float(os.environ.get('TLN_SPEED_STD', '') or '1.83')
+        self._v_k = float(os.environ.get('TLN_SPEED_K', '') or '1.0')
         self._v_des = 0.0
 
         # --- Wrong-way detection, from integrated yaw only ---------------------------------------
@@ -367,7 +389,12 @@ class TinyLidarNetNode(Node):
         # less speed the corner allows. That keeps the AI division's sensor rules -- it needs no position,
         # only the lidar the network already saw.
         if self.lon_kp > 0.0:
-            v_des = self.max_speed_mps - self.steer_slowdown * abs(float(steer))
+            if self.vdes_from_net:
+                # Inverse of the dataset's zero-centred mapping. Needs control_mode "ai", because "fixed"
+                # substitutes a constant for slot 0 before it ever reaches here.
+                v_des = self._v_mean + float(accel) * self._v_k * self._v_std
+            else:
+                v_des = self.max_speed_mps - self.steer_slowdown * abs(float(steer))
             v_des = float(np.clip(v_des, self.corner_speed_mps, self.max_speed_mps))
             if self._last_velocity_mps < self.launch_speed_mps:
                 v_des = max(v_des, self.launch_speed_mps)
@@ -396,7 +423,11 @@ class TinyLidarNetNode(Node):
                 # imu_n is the gate's input: if it stays 0 the IMU topic is not arriving and the
                 # wrong-way test silently cannot fire, which is exactly the failure to look for.
                 f'yaw={self._net_yaw_deg():+.0f}deg imu_n={len(self._yaw_hist)} '
-                f'uturns={self._uturn_count}')
+                f'uturns={self._uturn_count} '
+                # vnet shows whether the speed head is actually driving v_des, and the three constants
+                # must match training -- a mismatch is otherwise silent.
+                f'vnet={int(self.vdes_from_net)} '
+                f'map=({self._v_mean:.2f},{self._v_std:.2f},k{self._v_k:.1f})')
 
         # 4. Debug Logging
         if self.debug:
