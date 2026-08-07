@@ -69,6 +69,7 @@ x-autoware-base: &autoware-base
     - TLN_UTURN_SPEED=${TLN_UTURN_SPEED:-}
     - TLN_UTURN_STEER=${TLN_UTURN_STEER:-}
     - TLN_UTURN_YAW_DEG=${TLN_UTURN_YAW_DEG:-}
+    - TLN_UTURN_TIMEOUT=${TLN_UTURN_TIMEOUT:-}
     - ROSBAG=${ROSBAG:-}
   volumes:
     - ./output:${OUTPUT_ROOT:-/output}

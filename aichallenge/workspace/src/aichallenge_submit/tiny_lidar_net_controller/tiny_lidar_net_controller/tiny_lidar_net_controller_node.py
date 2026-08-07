@@ -94,7 +94,13 @@ class TinyLidarNetNode(Node):
         # /sensing/imu/imu_raw, which participant-interface.md requires every submission to subscribe.
         self.wrongway_window_s = float(os.environ.get('TLN_WRONGWAY_WINDOW', '') or '40.0')
         self.wrongway_yaw_deg = float(os.environ.get('TLN_WRONGWAY_YAW_DEG', '') or '50.0')
-        self.wrongway_enable = (os.environ.get('TLN_WRONGWAY', '') or '1') not in ('0', 'false')
+        # DEFAULT OFF. The first live test of this deadlocked ALL THREE cars: each entered the U-turn and
+        # froze with v_meas 0.00 and the turned angle stuck at 47, 148 and 102 of 150 deg. The exit
+        # condition was "yaw actually turned", and a car that cannot move accumulates no yaw, so the state
+        # was absorbing -- strictly worse than having no detector at all. The timeout and the no-progress
+        # abort below fix that, but the feature stays off by default until it is measured to help.
+        self.wrongway_enable = (os.environ.get('TLN_WRONGWAY', '') or '0') not in ('0', 'false')
+        self.uturn_timeout_s = float(os.environ.get('TLN_UTURN_TIMEOUT', '') or '6.0')
         self.uturn_speed_mps = float(os.environ.get('TLN_UTURN_SPEED', '') or '1.5')
         self.uturn_steer = float(os.environ.get('TLN_UTURN_STEER', '') or '0.40')
         self.uturn_yaw_target_deg = float(os.environ.get('TLN_UTURN_YAW_DEG', '') or '150.0')
@@ -102,6 +108,7 @@ class TinyLidarNetNode(Node):
         self._uturn_until_yaw = None  # set while a recovery U-turn is in progress
         self._uturn_yaw_acc = 0.0
         self._uturn_count = 0
+        self._uturn_start_s = 0.0
         self._last_imu_t = None
         self.create_subscription(Imu, '/sensing/imu/imu_raw', self._imu_cb,
                                  QoSProfile(depth=20, reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -221,13 +228,21 @@ class TinyLidarNetNode(Node):
             self._uturn_until_yaw = self.uturn_yaw_target_deg
             self._uturn_yaw_acc = 0.0
             self._uturn_count += 1
+            self._uturn_start_s = now_s
             self.get_logger().warn(
                 f'[tln] WRONG WAY: net yaw {self._net_yaw_deg():+.0f} deg over '
                 f'{span:.0f} s exceeds +{self.wrongway_yaw_deg:.0f}; U-turn #{self._uturn_count}')
 
         turned = abs(np.degrees(self._uturn_yaw_acc))
-        if turned >= self._uturn_until_yaw:
-            self.get_logger().warn(f'[tln] U-turn complete, turned {turned:.0f} deg; resuming')
+        elapsed = now_s - self._uturn_start_s
+        # A HARD timeout as well as the yaw target. Without it this state is absorbing: the exit test is
+        # "yaw actually turned", a wedged car turns no yaw, and all three cars in the first live test froze
+        # here at 47, 148 and 102 of 150 deg with v_meas 0.00 for the rest of the race. Whatever the
+        # manoeuvre achieved, hand control back and let the normal policy and the recovery node try.
+        if turned >= self._uturn_until_yaw or elapsed >= self.uturn_timeout_s:
+            why = 'turned enough' if turned >= self._uturn_until_yaw else 'TIMEOUT'
+            self.get_logger().warn(
+                f'[tln] U-turn end ({why}): turned {turned:.0f} deg in {elapsed:.1f} s; resuming')
             self._uturn_until_yaw = None
             self._yaw_hist.clear()   # the manoeuvre's own yaw must not re-trigger the test
             self._last_imu_t = None
