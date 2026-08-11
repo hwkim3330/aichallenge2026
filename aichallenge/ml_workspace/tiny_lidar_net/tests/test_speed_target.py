@@ -57,23 +57,43 @@ check("slot 1 is the steering", np.allclose(t[:, 1], STEERS))
 check("scan normalised to [0,1]", 0.0 <= ds[0][0].min() and ds[0][0].max() <= 1.0,
       f"max {ds[0][0].max():.3f}")
 
-print("\nspeed convention (normalised commanded speed in slot 0)")
+# The dataset does not use the min-max mapping this test originally asserted. It
+# zero-centres: (v - mean) / (std * k), clipped to the tanh head's range. The node
+# inverts with mean + head * k * std. What matters is not which convention is used
+# but that both sides share the constants -- they did not, and the test asserting a
+# third convention is how that went unnoticed.
+V_MEAN, V_STD, V_K = 8.03, 1.45, 3.0
+
+print("\nspeed convention (zero-centred commanded speed in slot 0)")
 os.environ["TLN_SPEED_TARGET"] = "1"
-os.environ["TLN_SPEED_VMAX"] = str(V_MAX)
+os.environ["TLN_SPEED_MEAN"] = str(V_MEAN)
+os.environ["TLN_SPEED_STD"] = str(V_STD)
+os.environ["TLN_SPEED_K"] = str(V_K)
 ds = load()
 t = np.stack([ds[i][1] for i in range(N)])
-expect = np.clip(2.0 * SPEEDS / V_MAX - 1.0, -1.0, 1.0)
-check("slot 0 is the normalised speed", np.allclose(t[:, 0], expect, atol=1e-6),
+expect = np.clip((SPEEDS - V_MEAN) / (V_STD * V_K), -1.0, 1.0)
+check("slot 0 is the zero-centred speed", np.allclose(t[:, 0], expect, atol=1e-6),
       f"got {np.round(t[:, 0], 4).tolist()}")
 check("slot 1 still the steering, order unchanged", np.allclose(t[:, 1], STEERS))
-check("v=0 maps to -1", abs(t[0, 0] + 1.0) < 1e-6)
-check("v=v_max maps to +1", abs(t[3, 0] - 1.0) < 1e-6)
-check("v=v_max/2 maps to 0", abs(t[2, 0]) < 1e-3, f"got {t[2,0]:.6f}")
+check("v=mean maps to 0", abs((V_MEAN - V_MEAN) / (V_STD * V_K)) < 1e-9)
+check("speeds far below mean saturate at -1", abs(t[0, 0] + 1.0) < 1e-6)
 
-print("\nround trip through the node's inverse, (head + 1) / 2 * v_max")
-recovered = (t[:, 0] + 1.0) * 0.5 * V_MAX
-check("recovers the commanded speed", np.allclose(recovered, SPEEDS, atol=1e-4),
-      f"max err {np.abs(recovered - SPEEDS).max():.2e}")
+print("\nround trip through the node's inverse, mean + head * k * std")
+recovered = V_MEAN + t[:, 0] * V_K * V_STD
+unsaturated = np.abs((SPEEDS - V_MEAN) / (V_STD * V_K)) < 1.0
+check("recovers the commanded speed where the head is not saturated",
+      np.allclose(recovered[unsaturated], SPEEDS[unsaturated], atol=1e-4),
+      f"max err {np.abs(recovered[unsaturated] - SPEEDS[unsaturated]).max():.2e}")
+
+print("\nthe node must default to the same constants as the dataset")
+node = pathlib.Path("/home/kim/aichallenge2026/aichallenge/workspace/src/aichallenge_submit/"
+                    "tiny_lidar_net_controller/tiny_lidar_net_controller/"
+                    "tiny_lidar_net_controller_node.py").read_text()
+for name, want in (("TLN_SPEED_MEAN", V_MEAN), ("TLN_SPEED_STD", V_STD), ("TLN_SPEED_K", V_K)):
+    import re as _re
+    m = _re.search(rf"{name}', ''\) or '([0-9.]+)'", node)
+    got = float(m.group(1)) if m else None
+    check(f"node default {name} == {want}", got == want, f"got {got}")
 
 print("\nmissing cmd_speeds.npy must raise rather than silently fall back")
 (seq / "cmd_speeds.npy").unlink()

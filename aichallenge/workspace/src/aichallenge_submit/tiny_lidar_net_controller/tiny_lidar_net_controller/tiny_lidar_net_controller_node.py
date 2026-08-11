@@ -93,9 +93,16 @@ class TinyLidarNetNode(Node):
         # These three constants MUST equal the ones training used, or the car drives at the wrong speed
         # with no error anywhere, so they are reported in the 1 Hz line.
         self.vdes_from_net = (os.environ.get('TLN_VDES_FROM_NET', '') or '0') not in ('0', 'false')
-        self._v_mean = float(os.environ.get('TLN_SPEED_MEAN', '') or '7.86')
-        self._v_std = float(os.environ.get('TLN_SPEED_STD', '') or '1.83')
-        self._v_k = float(os.environ.get('TLN_SPEED_K', '') or '1.0')
+        # These MUST equal lib/data.py's, because line ~395 inverts the mapping the
+        # dataset encodes. They did not: the dataset centres on (8.03, 1.45, k=3.0)
+        # and this node defaulted to (7.86, 1.83, k=1.0), which composes to
+        # v_out = 4.48 + 0.42*v_true -- +3.3 m/s at 2 m/s and +2.2 at 4 m/s, i.e. far
+        # too fast exactly in the corners. TLN_VDES_FROM_NET defaults off so nothing
+        # shipped with this, but turning it on is precisely the AI-track plan, and the
+        # symptom would have read as "the model still needs work".
+        self._v_mean = float(os.environ.get('TLN_SPEED_MEAN', '') or '8.03')
+        self._v_std = float(os.environ.get('TLN_SPEED_STD', '') or '1.45')
+        self._v_k = float(os.environ.get('TLN_SPEED_K', '') or '3.0')
         self._v_des = 0.0
 
         # --- Wrong-way detection, from integrated yaw only ---------------------------------------
