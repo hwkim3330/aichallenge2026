@@ -83,8 +83,8 @@ threading.Thread(target=starter, daemon=True).start()
 
 PAGE = '''<!doctype html><html lang="ko"><meta charset="utf-8"><title>사람 vs AI</title>
 <style>body{margin:0;background:#0d1117;color:#e6edf3;font:18px/1.4 'Noto Sans KR',sans-serif}
-h1{margin:16px 24px;font-size:26px}.row{display:flex;gap:16px;padding:0 24px}
-.car{flex:1;background:#161b22;border-radius:14px;padding:18px 22px}.car h2{margin:0 0 6px;font-size:24px}
+h1{margin:16px 20px;font-size:24px}.row{display:flex;flex-wrap:wrap;gap:14px;padding:0 20px}
+.car{flex:1 1 240px;background:#161b22;border-radius:14px;padding:18px 22px}.car h2{margin:0 0 6px;font-size:24px}
 .big{font-size:54px;font-weight:700;font-variant-numeric:tabular-nums}.k{color:#8b949e;font-size:15px}
 .best{color:#3fb950}.lead{outline:3px solid #f0b72f}button{margin:16px 24px;font-size:18px;padding:10px 18px;border-radius:10px;border:0;background:#f0b72f;color:#111;cursor:pointer}
 table{width:100%;margin-top:8px;border-collapse:collapse;font-variant-numeric:tabular-nums}td{padding:2px 0}</style>
@@ -130,6 +130,9 @@ class H(BaseHTTPRequestHandler):
                 p_reset.publish(Empty())
             else:
                 open('/tools/.new_race', 'w').close()
+            with lock:
+                board = fresh()
+        elif self.path.startswith('/clear'):            # race.sh: a fresh AWSIM has started, the board starts over
             with lock:
                 board = fresh()
         elif self.path.startswith('/start'):

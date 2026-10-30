@@ -12,7 +12,12 @@ AW=${AW:-10.42.0.90}
 [ "$(hostname -I 2>/dev/null | grep -c 10.42.0.90)" = 1 ] && LOCAL=${LOCAL:-1}
 LOCAL=${LOCAL:-0}
 if [ "$LOCAL" = 1 ]; then
-  export DISPLAY=:0 XAUTHORITY=${XAUTHORITY:-/run/user/$(id -u)/gdm/Xauthority}
+  export DISPLAY=:0
+  XA=${XAUTHORITY:-/run/user/$(id -u)/gdm/Xauthority}
+  # the containers reach X through the socket (xhost local), not the host's auth file (not mounted in them: with
+  # its path passed in, AWSIM opened no window here)
+  XAUTHORITY=$XA xhost +local: >/dev/null 2>&1
+  export XAUTHORITY=
   WHEEL=ws://127.0.0.1:8771
   DC="sg docker -c"
 else
@@ -32,15 +37,16 @@ up)
   run_cmd aic-board "python3 -u /tools/race_board.py"
   sleep 15
   if [ "$LOCAL" = 1 ]; then
-    command -v wmctrl >/dev/null && wmctrl -r AWSIM -e 0,0,0,1900,1400
-    touch tools/.new_race          # the first race: the watcher brings the AI up to the grid, then counts down
-    setsid -f firefox --new-window http://127.0.0.1:8097/ >/dev/null 2>&1
+    touch tools/.new_race          # the first race: the watcher restarts AWSIM and the AI
+    XAUTHORITY=$XA setsid -f google-chrome --no-first-run --no-default-browser-check --password-store=basic --disable-features=Translate --lang=ko --new-window --app=http://127.0.0.1:8097/ \
+      --user-data-dir=/tmp/aic-board-chrome --window-size=640,1400 --window-position=1920,0 >/dev/null 2>&1
+    (sleep 40; XAUTHORITY=$XA "$0" arrange) &
     setsid -f "$0" watch > /tmp/race_watch.log 2>&1 < /dev/null
     echo "race up here: AWSIM + scoreboard http://127.0.0.1:8097 on this screen"
     exit 0
   fi
   wmctrl -r AWSIM -e 0,0,60,2620,2000
-  setsid -f google-chrome --no-first-run --no-default-browser-check --new-window --app=http://127.0.0.1:8097/ \
+  setsid -f google-chrome --no-first-run --no-default-browser-check --password-store=basic --disable-features=Translate --lang=ko --new-window --app=http://127.0.0.1:8097/ \
     --user-data-dir=/tmp/aic-board-chrome --window-size=1180,1500 --window-position=2640,60 >/dev/null 2>&1
   # the screen to the Autoware PC (the wheel is there): MJPEG frames over TCP (no H.264 decoder there; RTP/UDP lost
   # fragments of the big frames and the picture broke up), 1080p30, ffmpeg listening and the viewer connecting
@@ -56,15 +62,24 @@ watch)
     [ -f tools/.new_race ] || continue
     rm -f tools/.new_race
     echo "$(date +%T) new race: restarting the AI"
-    # the AI's start sequence (initial pose, control mode) runs once per Autoware start: restart it, put the karts
-    # back on the grid (held there: sync start), give the AI time to settle on it, then 3-2-1 and go
-    $DC "docker restart 1-autoware-1" >/dev/null
-    sleep 3
-    curl -s -X POST "http://127.0.0.1:8097/reset?now" >/dev/null
-    sleep 14
-    curl -s -X POST "http://127.0.0.1:8097/start?in=3" >/dev/null
-    echo "$(date +%T) reset, counting down"
+    # a fresh AWSIM per race (its count-down start runs once, at boot; a reset or a sync start did not start the karts
+    # again here), then the AI's Autoware (its start sequence also runs once), then the board cleared
+    $DC "docker restart aichallenge2026-simulator-1" >/dev/null
+    sleep 6
+    $DC "docker restart 1-autoware-1 aic-human" >/dev/null   # (the wheel node too: P2 stayed out of Auto after a restart)
+    curl -s -X POST "http://127.0.0.1:8097/clear" >/dev/null
+    [ "$LOCAL" = 1 ] && (sleep 25; XAUTHORITY=$XA "$0" arrange) &
+    echo "$(date +%T) AWSIM and the AI restarted: the count-down follows"
   done
+  ;;
+arrange)
+  # the Autoware PC's screen (2560x1440): AWSIM large on the left, the board on the right, RViz and the
+  # orchestrator's debug window out of the way
+  if [ "$LOCAL" = 1 ]; then export XAUTHORITY=$XA; fi
+  for w in RViz "Autostart Orchestrator Debug"; do for id in $(xdotool search --name "$w" 2>/dev/null); do xdotool windowminimize "$id" 2>/dev/null; done; done
+  wmctrl -r AWSIM -e 0,0,0,1910,1420
+  for t in "사람 vs AI" "127.0.0.1"; do wmctrl -r "$t" -e 0,1920,0,640,1420; wmctrl -a "$t"; done
+  wmctrl -a AWSIM
   ;;
 down)
   for p in $(ps -eo pid=,args= | awk '/race.sh watch/ && !/awk/ {print $1}'); do kill "$p"; done

@@ -138,9 +138,9 @@ class Human(Node):
         now = time.time()
         dt, self.last = now - self.last, now
         stamp = self.get_clock().now().to_msg()
-        # the control mode (autonomous control from ROS) and the gear: asked for over and over in the first 20 s, as
-        # the sim's start sequence may not be listening yet; then every 2 s
-        if now - self.t0 < 20 or int(now * 50) % 100 == 0:
+        # the control mode (autonomous control from ROS) and the gear, twice a second
+        if now - getattr(self, '_req', 0.0) > 0.5:      # (AWSIM restarts for every race: asked for all along)
+            self._req = now
             self.p_mode.publish(Bool(data=True))
             self.p_gear.publish(GearCommand(stamp=stamp, command=self.gear))
         w = self.wheel.state if now - self.wheel.t < 0.5 else None

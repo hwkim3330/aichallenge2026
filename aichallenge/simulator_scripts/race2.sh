@@ -1,5 +1,5 @@
 #!/bin/bash
-# human vs AI race (tools/race.sh): 2 karts held on the grid until /admin/awsim/start (sync), so every race starts together
+# human vs AI race (tools/race.sh): 2 karts, the count-down start (AWSIM restarts for every race: sync starts after a reset never released here, 2026-10-30)
 
 AWSIM_DIRECTORY=/aichallenge/simulator/AWSIM
 export ROS_DOMAIN_ID=0
@@ -9,7 +9,7 @@ vehicles="${1:-2}"
 
 exec $AWSIM_DIRECTORY/AWSIM.x86_64 \
     --venue citycircuit \
-    --start-mode sync \
+    --start-mode count \
     --start-count-seconds 5 \
     --vehicles "${vehicles}" \
     --npcs 0 \
