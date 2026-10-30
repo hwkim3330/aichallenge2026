@@ -17,7 +17,7 @@ from rclpy.context import Context
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from autoware_auto_vehicle_msgs.msg import VelocityReport
-from std_msgs.msg import Empty, Float32MultiArray
+from std_msgs.msg import Bool, Empty, Float32MultiArray
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--cars', default='1:메타몽 AI,2:사람')
@@ -64,6 +64,22 @@ ctx0 = Context()
 rclpy.init(context=ctx0, domain_id=0)
 admin = Node('race_board_admin', context=ctx0)
 p_reset = admin.create_publisher(Empty, '/admin/awsim/reset', 1)
+p_start = admin.create_publisher(Bool, '/admin/awsim/start', 1)
+go = {'at': 0.0}      # the start's wall time (the page counts down to it); AWSIM (race2: --start-mode sync) holds the
+                      # karts on the grid until /admin/awsim/start
+
+
+def starter():
+    while True:
+        time.sleep(0.05)
+        if go['at'] and time.time() >= go['at']:
+            for _ in range(3):
+                p_start.publish(Bool(data=True))
+                time.sleep(0.1)
+            go['at'] = 0.0
+
+
+threading.Thread(target=starter, daemon=True).start()
 
 PAGE = '''<!doctype html><html lang="ko"><meta charset="utf-8"><title>사람 vs AI</title>
 <style>body{margin:0;background:#0d1117;color:#e6edf3;font:18px/1.4 'Noto Sans KR',sans-serif}
@@ -72,11 +88,12 @@ h1{margin:16px 24px;font-size:26px}.row{display:flex;gap:16px;padding:0 24px}
 .big{font-size:54px;font-weight:700;font-variant-numeric:tabular-nums}.k{color:#8b949e;font-size:15px}
 .best{color:#3fb950}.lead{outline:3px solid #f0b72f}button{margin:16px 24px;font-size:18px;padding:10px 18px;border-radius:10px;border:0;background:#f0b72f;color:#111;cursor:pointer}
 table{width:100%;margin-top:8px;border-collapse:collapse;font-variant-numeric:tabular-nums}td{padding:2px 0}</style>
-<h1>사람 vs 메타몽 AI · AWSIM citycircuit</h1><div class="row" id="cars"></div>
+<h1>사람 vs 메타몽 AI · AWSIM citycircuit <span id="go" style="color:#f0b72f;font-size:44px;margin-left:24px"></span></h1><div class="row" id="cars"></div>
 <button onclick="fetch('/reset',{method:'POST'})">새 레이스 (모두 출발선으로)</button>
 <p class="k" style="margin:0 24px">휠: R2 가속 · L2 브레이크 · ✕ 부스트 · 패들 R 후진 / L 전진</p>
 <script>const f=t=>t?t.toFixed(3)+' s':'-';
-async function tick(){const s=await (await fetch('/state')).json();const cs=Object.values(s);
+async function tick(){const S=await (await fetch('/state')).json();const s=S.cars;const cs=Object.values(s);
+document.getElementById('go').textContent=S.go_in!=null?(S.go_in>0?Math.ceil(S.go_in):'출발!'):'';
 const key=c=>[c.lap,c.cur];const lead=cs.slice().sort((a,b)=>b.lap-a.lap||a.cur-b.cur)[0];
 document.getElementById('cars').innerHTML=cs.map(c=>{const best=c.laps.length?Math.min(...c.laps):0;
 return `<div class="car ${c===lead&&c.lap?'lead':''}"><h2>${c.name}</h2><div class="k">랩 ${c.lap||'-'} · ${c.kmh} km/h</div>
@@ -100,7 +117,7 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith('/state'):
             with lock:
-                self._send(json.dumps({d: c for d, c in board.items()}, ensure_ascii=False), 'application/json')
+                self._send(json.dumps({'cars': board, 'go_in': round(go['at'] - time.time(), 1) if go['at'] else None}, ensure_ascii=False), 'application/json')
         else:
             self._send(PAGE, 'text/html; charset=utf-8')
 
@@ -115,6 +132,8 @@ class H(BaseHTTPRequestHandler):
                 open('/tools/.new_race', 'w').close()
             with lock:
                 board = fresh()
+        elif self.path.startswith('/start'):
+            go['at'] = time.time() + (3.0 if 'in=3' in self.path else 0.0)
         self._send('{}', 'application/json')
 
 

@@ -4,7 +4,7 @@
 Runs in the dev image on the slot's ROS domain (tools/race.sh), with no Autoware for that slot: the wheel bridge's
 WebSocket ({"type":"input", steer deg, gas, brake 0..1, codes[]} -- autoware-pc-setup g923_autoware_manual.py speaks
 the same) becomes the kart's /control/command/control_cmd, as teleop_manager does for a gamepad: the commanded
-acceleration, and a target speed of the current one plus it times dt (AWSIM's bridge tracks .speed).
+acceleration, and a target speed 6 m/s beyond the current one at full pedal (AWSIM's bridge tracks .speed).
 
     gas    the pedal, or R2 / R3 held (the desk has no pedals)     brake  the pedal, or L2 / L3 held
     rim    +-LOCK_DEG deg = +-0.64 rad at the tyres (the kart's max_steer_angle)
@@ -166,7 +166,9 @@ class Human(Node):
         self.prev = held
         acc = A_GAS * gas - A_BRAKE * brake
         sign = -1.0 if self.gear == GearCommand.REVERSE else 1.0
-        speed = abs(self.v) + acc * dt
+        # AWSIM's bridge chases .speed: teleop's current + acc * dt sat 0.07 m/s above the car and it crept at
+        # ~0.9 m/s2; a target 6 m/s beyond (scaled by the pedal) pulls the kart's full power, and the brake likewise
+        speed = abs(self.v) + 6.0 * gas - 6.0 * brake if (gas or brake) else abs(self.v)
         out.longitudinal.acceleration = acc
         out.longitudinal.speed = sign * max(0.0, min(VMAX if sign > 0 else 3.0, speed))
         out.lateral.steering_tire_angle = max(-1.0, min(1.0, float(w.get('steer', 0.0)) / LOCK_DEG)) * MAX_TIRE
