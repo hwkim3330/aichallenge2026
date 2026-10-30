@@ -63,24 +63,41 @@ watch)
     [ -f tools/.new_race ] || continue
     rm -f tools/.new_race
     echo "$(date +%T) new race: restarting the AI"
-    # a fresh AWSIM per race (its count-down start runs once, at boot; a reset or a sync start did not start the karts
-    # again here), then the AI's Autoware (its start sequence also runs once), then the board cleared
-    $DC "docker restart aichallenge2026-simulator-1" >/dev/null
-    sleep 6
+    # a fresh AWSIM per race (its count-down start runs once, at boot). A kart joins that count-down only if it asked
+    # for its control mode while still Grounded (asked at Ready, the AI was left out and held at 5 km/h): so AWSIM
+    # comes up last, with the AI already waiting for it and the wheel node already asking
+    # the scoreboard's settings (tools/race_config.json, option values from fixed lists; quoted all the same)
+    eval "$(python3 - <<'PY'
+import json, shlex
+c = {'ai_style': 'safe', 'ai_ctrl': 'mpc', 'ai_speed': '85', 'collisions': 'on', 'boosts': '2', 'laps': 'unlimited', 'view': 'p2', 'lock': '150'}
+try:
+    c.update(json.load(open('tools/race_config.json')))
+except (OSError, ValueError):
+    pass
+for k, v in c.items():
+    print(f'C_{k}={shlex.quote(str(v))}')
+PY
+)"
+    printf 'RACE_COLLISIONS=%q RACE_BOOSTS=%q RACE_LAPS=%q\n' "$C_collisions" "$C_boosts" "$C_laps" > aichallenge/simulator_scripts/race2.env
+    SIMV=race2; [ "$C_ai_style" = race ] && SIMV=race2noavoid
+    REF=""; [ "$C_ai_speed" != 100 ] && REF="ref_vel_race$C_ai_speed.yaml"
+    echo "$(date +%T) settings: AI $C_ai_style/$C_ai_ctrl/$C_ai_speed% collisions $C_collisions boosts $C_boosts laps $C_laps view $C_view lock $C_lock"
+    $DC "docker stop aichallenge2026-simulator-1" >/dev/null
     $DC "docker rm -f aic-human" >/dev/null 2>&1
     touch /tmp/race_ai_restart
-    $DC "docker restart 1-autoware-1" >/dev/null
-    # AWSIM counts down once the first kart is ready and leaves out any that is not (held at 5 km/h after): the wheel
-    # node -- ready in a second -- only after the AI has asked for its control mode (its log, the newest run dir)
+    # the AI recreated with this race's brain, character and speed (a restart keeps the old environment)
+    $DC "SIM_MODE=$SIMV CONTROL_METHOD=$C_ai_ctrl MPC_REF_VEL_FILE=$REF ROS_DOMAIN_ID=1 docker compose -p 1 up -d --force-recreate autoware" >/dev/null 2>&1
     for _ in $(seq 1 60); do
       L=$(ls -td output/2026*/d1 2>/dev/null | head -1)
-      [ -n "$L" ] && [ "$L/autoware.log" -nt /tmp/race_ai_restart ] && grep -q "control mode request: success=True" "$L/autoware.log" && break
+      [ -n "$L" ] && [ "$L/autoware.log" -nt /tmp/race_ai_restart ] && grep -q "wait start" "$L/autoware.log" && break
       sleep 1
     done
-    # a fresh wheel node (a --rm container: once stopped it is gone, so a restart had nothing to restart)
-    run_cmd aic-human "WHEEL_URL=$WHEEL python3 -u /tools/human_driver.py" 2
+    run_cmd aic-human "LOCK_DEG=$C_lock WHEEL_URL=$WHEEL python3 -u /tools/human_driver.py" 2
+    sleep 3
+    $DC "docker start aichallenge2026-simulator-1" >/dev/null
     curl -s -X POST "http://127.0.0.1:8097/clear" >/dev/null
-    [ "$LOCAL" = 1 ] && (sleep 25; XAUTHORITY=$XA "$0" arrange) &
+    # the human's own view: AWSIM's observer camera (C) goes split -> P1 -> P2; the AI's side is RViz beside it
+    [ "$LOCAL" = 1 ] && (sleep 25; XAUTHORITY=$XA "$0" arrange; XAUTHORITY=$XA "$0" p2view "$C_view") &
     echo "$(date +%T) AWSIM and the AI restarted: the count-down follows"
   done
   ;;
@@ -89,10 +106,18 @@ arrange)
   # race line, pose and trajectory); the orchestrator's debug window out of the way
   if [ "$LOCAL" = 1 ]; then export XAUTHORITY=$XA; fi
   for id in $(xdotool search --name "Autostart Orchestrator Debug" 2>/dev/null); do xdotool windowminimize "$id" 2>/dev/null; done
-  wmctrl -r AWSIM -e 0,0,0,1600,1420
+  wmctrl -r AWSIM -b remove,maximized_vert,maximized_horz; wmctrl -r AWSIM -e 0,0,0,1600,1420
   for t in "사람 vs" "127.0.0.1"; do wmctrl -r "$t" -e 0,1610,0,950,540; done
   wmctrl -r RViz -b remove,hidden; wmctrl -r RViz -e 0,1610,560,950,860
   for t in RViz "사람 vs" "127.0.0.1" AWSIM; do wmctrl -a "$t" 2>/dev/null; done
+  ;;
+p2view)
+  if [ "$LOCAL" = 1 ]; then export XAUTHORITY=$XA; fi
+  W=$(xdotool search --name "^AWSIM$" | head -1)
+  # observer camera (C): split -> P1 -> P2
+  case "${2:-p2}" in p1) N=1;; split) N=0;; *) N=2;; esac
+  for _ in $(seq 1 $N); do xdotool windowactivate --sync "$W" key c 2>/dev/null; sleep 0.7; done
+  "$0" arrange
   ;;
 down)
   for p in $(ps -eo pid=,args= | awk '/race.sh watch/ && !/awk/ {print $1}'); do kill "$p"; done

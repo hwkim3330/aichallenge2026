@@ -1,0 +1,32 @@
+# the race speed profile (ref_vel.yaml) at 55 %: tools/race.sh "AI 속도" (a human vs AI race), not for evaluation
+ref_vel_configulator:
+  s1:
+    ref_vel: 16.5
+    wp_id: 1
+  s1_1:
+    ref_vel: 16.5
+    wp_id: 30
+  s2:
+    ref_vel: 16.5
+    wp_id: 55
+  s3:
+    ref_vel: 16.5
+    wp_id: 100
+  s4:
+    ref_vel: 12.1
+    wp_id: 155
+  s5:
+    ref_vel: 16.5
+    wp_id: 190
+  s6:
+    ref_vel: 12.1
+    wp_id: 265
+  s7:
+    ref_vel: 16.5
+    wp_id: 290
+  s8:
+    ref_vel: 13.8
+    wp_id: 320
+  s9:
+    ref_vel: 16.5
+    wp_id: 335

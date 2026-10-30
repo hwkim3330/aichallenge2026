@@ -7,18 +7,22 @@ export ROS_DOMAIN_ID=0
 # 車両数: 第1引数（既定 1）
 vehicles="${1:-2}"
 
+# the scoreboard's settings (tools/race.sh writes them before each race)
+RACE_COLLISIONS=on RACE_BOOSTS=2 RACE_LAPS=unlimited
+[ -f /aichallenge/simulator_scripts/race2.env ] && . /aichallenge/simulator_scripts/race2.env
+
 exec $AWSIM_DIRECTORY/AWSIM.x86_64 \
     --venue citycircuit \
     --start-mode count \
     --start-count-seconds 5 \
     --vehicles "${vehicles}" \
     --npcs 0 \
-    --boosts 2 \
-    --laps unlimited \
+    --boosts "${RACE_BOOSTS}" \
+    --laps "${RACE_LAPS}" \
     --timeout 10000000.0 \
     --steer-source ackermann \
     --sound off \
-    --collisions on \
+    --collisions "${RACE_COLLISIONS}" \
     --handicap off \
     --wall-recovery on \
     --ranking off \

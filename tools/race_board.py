@@ -34,6 +34,18 @@ def fresh():
 
 board = fresh()
 
+# the race's settings: the page's 설정 panel, applied by tools/race.sh at the next 새 레이스
+CONFIG = '/tools/race_config.json'
+DEFAULTS = {'ai_style': 'safe', 'ai_ctrl': 'mpc', 'ai_speed': '85', 'collisions': 'on', 'boosts': '2', 'laps': 'unlimited',
+            'view': 'p2', 'lock': '150'}
+
+
+def load_config():
+    try:
+        return {**DEFAULTS, **json.load(open(CONFIG))}
+    except (OSError, ValueError):
+        return dict(DEFAULTS)
+
 
 def car_node(domain):
     ctx = Context()
@@ -87,11 +99,27 @@ h1{margin:16px 20px;font-size:24px}.row{display:flex;flex-wrap:wrap;gap:14px;pad
 .car{flex:1 1 240px;background:#161b22;border-radius:14px;padding:18px 22px}.car h2{margin:0 0 6px;font-size:24px}
 .big{font-size:54px;font-weight:700;font-variant-numeric:tabular-nums}.k{color:#8b949e;font-size:15px}
 .best{color:#3fb950}.lead{outline:3px solid #f0b72f}button{margin:16px 24px;font-size:18px;padding:10px 18px;border-radius:10px;border:0;background:#f0b72f;color:#111;cursor:pointer}
-table{width:100%;margin-top:8px;border-collapse:collapse;font-variant-numeric:tabular-nums}td{padding:2px 0}</style>
+table{width:100%;margin-top:8px;border-collapse:collapse;font-variant-numeric:tabular-nums}td{padding:2px 0}
+.cfg{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px 14px;margin:16px 20px 0}
+.cfg label{display:flex;flex-direction:column;font-size:13px;color:#8b949e;gap:3px}
+.cfg select{font-size:15px;padding:5px 8px;border-radius:8px;background:#21262d;color:#e6edf3;border:1px solid #30363d}</style>
 <h1>사람 vs Metamong AI · AWSIM citycircuit <span id="go" style="color:#f0b72f;font-size:44px;margin-left:24px"></span></h1><div class="row" id="cars"></div>
-<button onclick="fetch('/reset',{method:'POST'})">새 레이스 (모두 출발선으로)</button>
+<div class="cfg" id="cfg"></div>
+<button onclick="apply()">설정 적용 · 새 레이스</button>
 <p class="k" style="margin:0 24px">휠: R2 가속 · L2 브레이크 · ✕ 부스트 · 패들 R 후진 / L 전진</p>
 <script>const f=t=>t?t.toFixed(3)+' s':'-';
+const OPTS={ai_style:['AI 성격',[['safe','안전 (라이다로 피함)'],['race','레이싱 (안 피함)']]],
+ ai_ctrl:['AI 두뇌',[['mpc','MPC (최적 경로)'],['tiny_lidar_net','TinyLidarNet (신경망)']]],
+ ai_speed:['AI 속도',[['55','55 %'],['70','70 %'],['85','85 %'],['100','100 % (대회 그대로)']]],
+ collisions:['충돌',[['on','켬'],['off','끔 (통과)']]], boosts:['부스트',[['0','0'],['2','2'],['5','5']]],
+ laps:['랩 수',[['unlimited','무제한'],['1','1'],['6','6'],['10','10']]],
+ view:['내 화면',[['p2','사람 전체'],['split','반반'],['p1','AI 전체']]],
+ lock:['핸들 감도',[['90','예민 (90°)'],['150','보통 (150°)'],['240','둔함 (240°)']]]};
+async function cfg(){const c=await (await fetch('/config')).json();
+document.getElementById('cfg').innerHTML=Object.entries(OPTS).map(([k,[n,o]])=>`<label>${n}<select id="c_${k}">${o.map(([v,t])=>`<option value="${v}" ${c[k]==v?'selected':''}>${t}</option>`).join('')}</select></label>`).join('')}
+async function apply(){const c={};for(const k in OPTS)c[k]=document.getElementById('c_'+k).value;
+await fetch('/config',{method:'POST',body:JSON.stringify(c)});await fetch('/reset',{method:'POST'})}
+cfg();
 async function tick(){const S=await (await fetch('/state')).json();const s=S.cars;const cs=Object.values(s);
 document.getElementById('go').textContent=S.go_in!=null?(S.go_in>0?Math.ceil(S.go_in):'출발!'):'';
 const key=c=>[c.lap,c.cur];const lead=cs.slice().sort((a,b)=>b.lap-a.lap||a.cur-b.cur)[0];
@@ -115,6 +143,9 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(b)
 
     def do_GET(self):
+        if self.path.startswith('/config'):
+            self._send(json.dumps(load_config()), 'application/json')
+            return
         if self.path.startswith('/state'):
             with lock:
                 self._send(json.dumps({'cars': board, 'go_in': round(go['at'] - time.time(), 1) if go['at'] else None}, ensure_ascii=False), 'application/json')
@@ -123,7 +154,14 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         global board
-        if self.path.startswith('/reset'):
+        if self.path.startswith('/config'):
+            n = int(self.headers.get('Content-Length', 0))
+            try:
+                c = {k: str(v) for k, v in json.loads(self.rfile.read(n)).items() if k in DEFAULTS}
+                json.dump({**load_config(), **c}, open(CONFIG, 'w'))
+            except ValueError:
+                pass
+        elif self.path.startswith('/reset'):
             # tools/race.sh watch restarts the AI's Autoware (its start sequence runs once), then sends the reset
             # here (/reset?now): every car back on the grid together, the AI ready for it
             if 'now' in self.path:

@@ -22,7 +22,7 @@ from sensor_msgs.msg import LaserScan
 from autoware_auto_control_msgs.msg import AckermannControlCommand
 
 
-RACE = os.environ.get("SIM_MODE", "").startswith("race")
+RACE = os.environ.get("SIM_MODE", "").startswith("race") and "noavoid" not in os.environ.get("SIM_MODE", "")   # race2noavoid: the plain racer
 WB = 1.087                 # m, the kart's wheelbase
 HALF = 0.85                # m, half the corridor: the kart's half width and a margin
 AVOID_RANGE = 14.0         # m, start avoiding something in the corridor this far ahead
@@ -75,7 +75,7 @@ class LidarGuard(Node):
     @staticmethod
     def _objects(scan: LaserScan):
         """scan points of object-sized clusters only: consecutive returns closer than 0.4 m form a cluster, and one
-        under 2.2 m across is a kart (or a person), not the long run of a wall or a barrier"""
+        0.5-2.2 m across is a kart, not a cone or the long run of a wall or a barrier"""
         pts = []
         for i, r in enumerate(scan.ranges):
             a = scan.angle_min + i * scan.angle_increment
@@ -86,7 +86,9 @@ class LidarGuard(Node):
         out, cur = [], []
 
         def flush():
-            if len(cur) >= 2 and math.dist(cur[0], cur[-1]) < 2.2:
+            # 0.5-2.2 m across: a kart (1 m wide, 1.6 m long); not a cone or a post (it slowed the AI to a crawl
+            # at the start), nor a wall
+            if len(cur) >= 3 and 0.5 < math.dist(cur[0], cur[-1]) < 2.2:
                 out.extend(cur)
         for p in pts:
             if p is None or (cur and math.dist(cur[-1], p) > 0.4):

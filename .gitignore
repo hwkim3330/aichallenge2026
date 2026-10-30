@@ -30,3 +30,5 @@ result-*.json
 # byte-identical weights backup left by the 2026-08-02 BC experiment.
 aichallenge/rivalbags/
 aichallenge/workspace/src/aichallenge_submit/tiny_lidar_net_controller/ckpt/*.bak_pre_bc20260802.npy
+tools/race_config.json
+aichallenge/simulator_scripts/race2.env
