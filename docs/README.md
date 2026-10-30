@@ -48,3 +48,7 @@
 
 - `record_rosbag.bash` が `aichallenge/utils/` と `vehicle/` に重複。手動記録ワークフロー（`vehicle/README.md`）が参照するのは `aichallenge/utils/record_rosbag.bash` で、`vehicle/record_rosbag.bash` への参照は見当たらない。どちらを正とするか（重複解消）を要確認。
 - `docker-entrypoint.sh` 3 行目のコメントに `for rocker sessions` が残存 → rocker 廃止に合わせた更新が必要。
+
+## 할 일 (2026-10-30)
+- **우리 코스를 사진 스캔 맵으로**: citycircuit 처럼 실제 장소를 찍어 만든다. 카카오 로드뷰 등은 약관상 재료로 못 쓰니 직접 촬영(GoPro/폰 영상, 한 바퀴) → 포토그래메트리 또는 3D 가우시안 스플래팅 → AWSIM(유니티)·korea-autoware-sim 에 올림. 후보 장소·촬영 요령부터.
+- 사람 vs AI 레이스(`tools/race.sh`): 안전 AI 의 라이다 회피를 실제 대결에서 검증, 화면을 AWSIM 멀티플레이로 PC 별로 분리하는 안.
