@@ -32,7 +32,8 @@ up)
   # race2: two karts held on the grid until /admin/awsim/start (sync start), so 새 레이스 can start them together
   $DC "make simulator SIM_MODE=race2" >/dev/null
   sleep 5
-  $DC "ROS_DOMAIN_ID=1 docker compose -p 1 up -d autoware" >/dev/null
+  # SIM_MODE=race2 in the AI's container: its lidar_guard keeps clear of the human's kart (race mode)
+  $DC "SIM_MODE=race2 ROS_DOMAIN_ID=1 docker compose -p 1 up -d autoware" >/dev/null
   run_cmd aic-human "WHEEL_URL=$WHEEL python3 -u /tools/human_driver.py" 2
   run_cmd aic-board "python3 -u /tools/race_board.py"
   sleep 15
@@ -66,9 +67,17 @@ watch)
     # again here), then the AI's Autoware (its start sequence also runs once), then the board cleared
     $DC "docker restart aichallenge2026-simulator-1" >/dev/null
     sleep 6
-    $DC "docker restart 1-autoware-1" >/dev/null
-    # the wheel node afresh too (a --rm container: once stopped it is gone, and restart then had nothing to restart)
     $DC "docker rm -f aic-human" >/dev/null 2>&1
+    touch /tmp/race_ai_restart
+    $DC "docker restart 1-autoware-1" >/dev/null
+    # AWSIM counts down once the first kart is ready and leaves out any that is not (held at 5 km/h after): the wheel
+    # node -- ready in a second -- only after the AI has asked for its control mode (its log, the newest run dir)
+    for _ in $(seq 1 60); do
+      L=$(ls -td output/2026*/d1 2>/dev/null | head -1)
+      [ -n "$L" ] && [ "$L/autoware.log" -nt /tmp/race_ai_restart ] && grep -q "control mode request: success=True" "$L/autoware.log" && break
+      sleep 1
+    done
+    # a fresh wheel node (a --rm container: once stopped it is gone, so a restart had nothing to restart)
     run_cmd aic-human "WHEEL_URL=$WHEEL python3 -u /tools/human_driver.py" 2
     curl -s -X POST "http://127.0.0.1:8097/clear" >/dev/null
     [ "$LOCAL" = 1 ] && (sleep 25; XAUTHORITY=$XA "$0" arrange) &

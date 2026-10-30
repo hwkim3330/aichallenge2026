@@ -22,6 +22,7 @@ exec $AWSIM_DIRECTORY/AWSIM.x86_64 \
     --handicap off \
     --wall-recovery on \
     --ranking off \
+    --observer-camera on \
     --camera gpu \
     --lidar cpu
 
