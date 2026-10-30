@@ -39,7 +39,7 @@ up)
   if [ "$LOCAL" = 1 ]; then
     touch tools/.new_race          # the first race: the watcher restarts AWSIM and the AI
     XAUTHORITY=$XA setsid -f google-chrome --no-first-run --no-default-browser-check --password-store=basic --disable-features=Translate --lang=ko --new-window --app=http://127.0.0.1:8097/ \
-      --user-data-dir=/tmp/aic-board-chrome --window-size=640,1400 --window-position=1920,0 >/dev/null 2>&1
+      --user-data-dir=/tmp/aic-board-chrome --window-size=950,540 --window-position=1610,0 >/dev/null 2>&1
     (sleep 40; XAUTHORITY=$XA "$0" arrange) &
     setsid -f "$0" watch > /tmp/race_watch.log 2>&1 < /dev/null
     echo "race up here: AWSIM + scoreboard http://127.0.0.1:8097 on this screen"
@@ -66,20 +66,24 @@ watch)
     # again here), then the AI's Autoware (its start sequence also runs once), then the board cleared
     $DC "docker restart aichallenge2026-simulator-1" >/dev/null
     sleep 6
-    $DC "docker restart 1-autoware-1 aic-human" >/dev/null   # (the wheel node too: P2 stayed out of Auto after a restart)
+    $DC "docker restart 1-autoware-1" >/dev/null
+    # the wheel node afresh too (a --rm container: once stopped it is gone, and restart then had nothing to restart)
+    $DC "docker rm -f aic-human" >/dev/null 2>&1
+    run_cmd aic-human "WHEEL_URL=$WHEEL python3 -u /tools/human_driver.py" 2
     curl -s -X POST "http://127.0.0.1:8097/clear" >/dev/null
     [ "$LOCAL" = 1 ] && (sleep 25; XAUTHORITY=$XA "$0" arrange) &
     echo "$(date +%T) AWSIM and the AI restarted: the count-down follows"
   done
   ;;
 arrange)
-  # the Autoware PC's screen (2560x1440): AWSIM large on the left, the board on the right, RViz and the
-  # orchestrator's debug window out of the way
+  # the Autoware PC's screen (2560x1440): AWSIM large on the left; on the right the board above the AI's RViz (its
+  # race line, pose and trajectory); the orchestrator's debug window out of the way
   if [ "$LOCAL" = 1 ]; then export XAUTHORITY=$XA; fi
-  for w in RViz "Autostart Orchestrator Debug"; do for id in $(xdotool search --name "$w" 2>/dev/null); do xdotool windowminimize "$id" 2>/dev/null; done; done
-  wmctrl -r AWSIM -e 0,0,0,1910,1420
-  for t in "사람 vs AI" "127.0.0.1"; do wmctrl -r "$t" -e 0,1920,0,640,1420; wmctrl -a "$t"; done
-  wmctrl -a AWSIM
+  for id in $(xdotool search --name "Autostart Orchestrator Debug" 2>/dev/null); do xdotool windowminimize "$id" 2>/dev/null; done
+  wmctrl -r AWSIM -e 0,0,0,1600,1420
+  for t in "사람 vs" "127.0.0.1"; do wmctrl -r "$t" -e 0,1610,0,950,540; done
+  wmctrl -r RViz -b remove,hidden; wmctrl -r RViz -e 0,1610,560,950,860
+  for t in RViz "사람 vs" "127.0.0.1" AWSIM; do wmctrl -a "$t" 2>/dev/null; done
   ;;
 down)
   for p in $(ps -eo pid=,args= | awk '/race.sh watch/ && !/awk/ {print $1}'); do kill "$p"; done

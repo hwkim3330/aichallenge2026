@@ -23,13 +23,17 @@ from urllib.parse import urlparse
 
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from autoware_auto_control_msgs.msg import AckermannControlCommand
 from autoware_auto_vehicle_msgs.msg import GearCommand, SteeringReport, VelocityReport
 from std_msgs.msg import Bool, Float32MultiArray
 
 LOCK_DEG = float(os.environ.get('LOCK_DEG', '150'))   # rim degrees for full lock: quick, as a kart is
 MAX_TIRE = 0.64                                       # rad, the kart's max_steer_angle
-A_GAS, A_BRAKE = 3.5, 7.0                             # m/s2 at full gas / brake
+# AWSIM flags a commanded acceleration above the kart's cap (base max acceleration, 1.37 m/s2) as OVER and holds the
+# kart at 5 km/h from then on (3.5 did it on the first press; 1.5 crept past): the command stays under it, and the
+# speed target does the pulling
+A_GAS, A_BRAKE = 1.3, 1.3                             # |m/s2| commanded (the kart's physics sets what it really does)
 VMAX = float(os.environ.get('VMAX', '30'))           # m/s target ceiling (the kart runs out of power well before)
 WB = 1.087                                            # m, the kart's wheelbase (for the wheel's feel only)
 G923 = {288: 'cross', 289: 'square', 290: 'circle', 291: 'triangle', 292: 'paddleR', 293: 'paddleL', 294: 'R2', 295: 'L2',
@@ -118,7 +122,8 @@ class WheelClient(threading.Thread):
 
 class Human(Node):
     def __init__(self):
-        super().__init__('human_driver')
+        # stamped on the sim's clock, as the AI's commands are
+        super().__init__('human_driver', parameter_overrides=[Parameter('use_sim_time', value=True)])
         self.p_cmd = self.create_publisher(AckermannControlCommand, '/control/command/control_cmd', 1)
         self.p_gear = self.create_publisher(GearCommand, '/control/command/gear_cmd', 1)
         self.p_mode = self.create_publisher(Bool, '/awsim/control_mode_request_topic', 1)
@@ -172,6 +177,7 @@ class Human(Node):
         out.longitudinal.acceleration = acc
         out.longitudinal.speed = sign * max(0.0, min(VMAX if sign > 0 else 3.0, speed))
         out.lateral.steering_tire_angle = max(-1.0, min(1.0, float(w.get('steer', 0.0)) / LOCK_DEG)) * MAX_TIRE
+        out.lateral.steering_tire_rotation_rate = 2.0
         self.p_cmd.publish(out)
 
     def ffb(self):

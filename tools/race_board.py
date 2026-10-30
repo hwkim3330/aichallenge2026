@@ -5,7 +5,7 @@ One rclpy context per car's ROS domain (AWSIM puts vehicle N on domain N): /awsi
 driven, data[2] its running time -- multi_purpose_mpc_ros reads it the same way) and the speed. A lap is done when
 data[1] goes up; its time is the last running time seen before. 새 레이스 asks tools/race.sh (a file in /tools)
 to restart the AI and then reset AWSIM (/admin/awsim/reset on domain 0, POST /reset?now): every car back on the grid.
-    python3 race_board.py [--cars 1:메타몽 AI,2:사람]"""
+    python3 race_board.py [--cars 1:Metamong AI,2:사람]"""
 import argparse
 import json
 import threading
@@ -20,7 +20,7 @@ from autoware_auto_vehicle_msgs.msg import VelocityReport
 from std_msgs.msg import Bool, Empty, Float32MultiArray
 
 ap = argparse.ArgumentParser()
-ap.add_argument('--cars', default='1:메타몽 AI,2:사람')
+ap.add_argument('--cars', default='1:Metamong AI,2:사람')
 ap.add_argument('--port', type=int, default=8097)
 a = ap.parse_args()
 CARS = [(int(d), n) for d, n in (c.split(':', 1) for c in a.cars.split(','))]
@@ -88,7 +88,7 @@ h1{margin:16px 20px;font-size:24px}.row{display:flex;flex-wrap:wrap;gap:14px;pad
 .big{font-size:54px;font-weight:700;font-variant-numeric:tabular-nums}.k{color:#8b949e;font-size:15px}
 .best{color:#3fb950}.lead{outline:3px solid #f0b72f}button{margin:16px 24px;font-size:18px;padding:10px 18px;border-radius:10px;border:0;background:#f0b72f;color:#111;cursor:pointer}
 table{width:100%;margin-top:8px;border-collapse:collapse;font-variant-numeric:tabular-nums}td{padding:2px 0}</style>
-<h1>사람 vs 메타몽 AI · AWSIM citycircuit <span id="go" style="color:#f0b72f;font-size:44px;margin-left:24px"></span></h1><div class="row" id="cars"></div>
+<h1>사람 vs Metamong AI · AWSIM citycircuit <span id="go" style="color:#f0b72f;font-size:44px;margin-left:24px"></span></h1><div class="row" id="cars"></div>
 <button onclick="fetch('/reset',{method:'POST'})">새 레이스 (모두 출발선으로)</button>
 <p class="k" style="margin:0 24px">휠: R2 가속 · L2 브레이크 · ✕ 부스트 · 패들 R 후진 / L 전진</p>
 <script>const f=t=>t?t.toFixed(3)+' s':'-';
